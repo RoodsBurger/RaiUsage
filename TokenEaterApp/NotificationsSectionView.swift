@@ -201,16 +201,12 @@ struct NotificationsSectionView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(enabled ? 0.6 : 0.25))
             Spacer()
-            Picker("", selection: selection) {
-                ForEach(options, id: \.self) { value in
-                    Text(formatOffsetMinutes(value)).tag(value)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .tint(DS.Palette.accentSettings)
-            .disabled(!enabled)
-            .frame(width: 110)
+            DSMenu(
+                selection: selection,
+                options: options,
+                label: formatOffsetMinutes,
+                enabled: enabled
+            )
         }
         .padding(.leading, 12)
     }
@@ -253,3 +249,4 @@ struct NotificationsSectionView: View {
         }
     }
 }
+
