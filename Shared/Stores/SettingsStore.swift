@@ -1,92 +1,67 @@
 import SwiftUI
 import UserNotifications
 import ServiceManagement
+import Combine
 
 @MainActor
 final class SettingsStore: ObservableObject {
-    // Menu bar
-    @Published var showMenuBar: Bool {
-        didSet { UserDefaults.standard.set(showMenuBar, forKey: "showMenuBar") }
+    // Display / menu bar - extracted into a child ObservableObject domain slice,
+    // same pattern as `pacing`. Views should prefer `settings.display.$x` for
+    // bindings; the forwards below keep existing non-binding call sites
+    // compiling without change.
+    @Published var display: DisplaySettingsStore
+    private var displayRelay: AnyCancellable?
+
+    // Backwards-compatible forwards (no $ bindings should target these).
+    var showMenuBar: Bool {
+        get { display.showMenuBar } set { display.showMenuBar = newValue }
     }
-    /// When true, the app starts in the menu bar only and skips auto-opening the
-    /// dashboard window at launch (incl. at login). The window stays reachable
-    /// from the menu bar (right-click > Open). Onboarding always force-opens
-    /// regardless of this flag so a fresh install is never left with no UI (#198).
-    @Published var launchInBackground: Bool {
-        didSet { UserDefaults.standard.set(launchInBackground, forKey: "launchInBackground") }
+    var launchInBackground: Bool {
+        get { display.launchInBackground } set { display.launchInBackground = newValue }
     }
-    @Published var pinnedMetrics: Set<MetricID> {
-        didSet { savePinnedMetrics() }
+    var pinnedMetrics: Set<MetricID> {
+        get { display.pinnedMetrics } set { display.pinnedMetrics = newValue }
     }
-    @Published var resetDisplayFormat: ResetDisplayFormat {
-        didSet { UserDefaults.standard.set(resetDisplayFormat.rawValue, forKey: "resetDisplayFormat") }
+    var resetDisplayFormat: ResetDisplayFormat {
+        get { display.resetDisplayFormat } set { display.resetDisplayFormat = newValue }
     }
-    /// When true, the reset countdown text is coloured based on a risk score
-    /// (utilization x remaining minutes) rather than the static user-picked
-    /// hex. Useful to signal urgency without constantly watching the number.
-    /// Global "Smart Color" theming. When ON, color codes throughout the app
-    /// (gauges, reset countdowns) integrate the time-to-reset factor instead of
-    /// raw thresholds. Example: 95% utilization with 2 minutes left to reset
-    /// stays green rather than going red. Falls back to threshold-based coloring
-    /// when no reset date is available.
-    @Published var smartColorEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(smartColorEnabled, forKey: "smartColorEnabled")
-            sharedFileService.updateSmartColorEnabled(smartColorEnabled)
-        }
+    var smartColorEnabled: Bool {
+        get { display.smartColorEnabled } set { display.smartColorEnabled = newValue }
     }
-    /// User-selected temperament for the smart color algorithm. Shifts
-    /// when the gauge transitions from chill -> warning -> hot. See
-    /// `SmartColorProfile` for the parameter mapping.
-    @Published var smartColorProfile: SmartColorProfile {
-        didSet {
-            UserDefaults.standard.set(smartColorProfile.rawValue, forKey: "smartColorProfile")
-            sharedFileService.updateSmartColorProfile(smartColorProfile)
-        }
+    var smartColorProfile: SmartColorProfile {
+        get { display.smartColorProfile } set { display.smartColorProfile = newValue }
     }
-    /// Controls the global glow / halo intensity in the popover and monitoring
-    /// views. Drives a single environment value read by every `.dsGlow()` call.
-    @Published var glowIntensity: DS.GlowIntensity {
-        didSet { UserDefaults.standard.set(glowIntensity.rawValue, forKey: "glowIntensity") }
+    var glowIntensity: DS.GlowIntensity {
+        get { display.glowIntensity } set { display.glowIntensity = newValue }
     }
-    /// Typography / separator style for the pinned metrics in the menu bar.
-    @Published var menuBarStyle: MenuBarStyle {
-        didSet { UserDefaults.standard.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
+    var menuBarStyle: MenuBarStyle {
+        get { display.menuBarStyle } set { display.menuBarStyle = newValue }
     }
-    /// Glyph used for the pacing indicator across menu bar + popover.
-    @Published var pacingShape: PacingShape {
-        didSet { UserDefaults.standard.set(pacingShape.rawValue, forKey: "pacingShape") }
+    var pacingShape: PacingShape {
+        get { display.pacingShape } set { display.pacingShape = newValue }
     }
-    @Published var sessionPacingDisplayMode: PacingDisplayMode {
-        didSet { UserDefaults.standard.set(sessionPacingDisplayMode.rawValue, forKey: "sessionPacingDisplayMode") }
+    var sessionPacingDisplayMode: PacingDisplayMode {
+        get { display.sessionPacingDisplayMode } set { display.sessionPacingDisplayMode = newValue }
     }
-    @Published var weeklyPacingDisplayMode: PacingDisplayMode {
-        didSet { UserDefaults.standard.set(weeklyPacingDisplayMode.rawValue, forKey: "weeklyPacingDisplayMode") }
+    var weeklyPacingDisplayMode: PacingDisplayMode {
+        get { display.weeklyPacingDisplayMode } set { display.weeklyPacingDisplayMode = newValue }
     }
-    /// Hex string ("#RRGGBB") for the menu-bar reset countdown text.
-    /// Empty = use the system's primary label color.
-    @Published var resetTextColorHex: String {
-        didSet { UserDefaults.standard.set(resetTextColorHex, forKey: "resetTextColorHex") }
+    var resetTextColorHex: String {
+        get { display.resetTextColorHex } set { display.resetTextColorHex = newValue }
     }
-    /// Hex string ("#RRGGBB") for the "5h" / "7d" / "S" period label.
-    /// Empty = use the system's tertiary label color.
-    @Published var sessionPeriodColorHex: String {
-        didSet { UserDefaults.standard.set(sessionPeriodColorHex, forKey: "sessionPeriodColorHex") }
+    var sessionPeriodColorHex: String {
+        get { display.sessionPeriodColorHex } set { display.sessionPeriodColorHex = newValue }
     }
-    /// Controls whether the Sonnet satellite appears in the popover Classic
-    /// variant AND in the dashboard constellation. The menu-bar visibility of
-    /// Sonnet is driven by `pinnedMetrics.contains(.sonnet)`, independently.
-    @Published var displaySonnet: Bool {
-        didSet { UserDefaults.standard.set(displaySonnet, forKey: "displaySonnet") }
+    var displaySonnet: Bool {
+        get { display.displaySonnet } set { display.displaySonnet = newValue }
     }
-    /// Same as `displaySonnet` but for Claude Design.
-    @Published var displayDesign: Bool {
-        didSet { UserDefaults.standard.set(displayDesign, forKey: "displayDesign") }
+    var displayDesign: Bool {
+        get { display.displayDesign } set { display.displayDesign = newValue }
     }
     /// Same as `displayDesign` but for the paid Extra Credits pool. Only
     /// surfaced in settings when `UsageStore.hasExtraCredits` is true.
-    @Published var displayExtraCredits: Bool {
-        didSet { UserDefaults.standard.set(displayExtraCredits, forKey: "displayExtraCredits") }
+    var displayExtraCredits: Bool {
+        get { display.displayExtraCredits } set { display.displayExtraCredits = newValue }
     }
 
     // MARK: - Popover
@@ -112,150 +87,125 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(proxyPort, forKey: "proxyPort") }
     }
 
-    // Overlay
-    @Published var overlayEnabled: Bool {
-        didSet { UserDefaults.standard.set(overlayEnabled, forKey: "overlayEnabled") }
+    // Overlay + Performance - extracted into a child ObservableObject domain
+    // slice, same pattern as `pacing`. Views should prefer `settings.overlay.$x`
+    // for bindings; the forwards below keep existing non-binding call sites
+    // compiling without change.
+    @Published var overlay: OverlaySettingsStore
+    private var overlayRelay: AnyCancellable?
+
+    // Backwards-compatible forwards (no $ bindings should target these).
+    var overlayEnabled: Bool {
+        get { overlay.overlayEnabled } set { overlay.overlayEnabled = newValue }
     }
-    @Published var overlayDockEffect: Bool {
-        didSet { UserDefaults.standard.set(overlayDockEffect, forKey: "overlayDockEffect") }
+    var overlayDockEffect: Bool {
+        get { overlay.overlayDockEffect } set { overlay.overlayDockEffect = newValue }
     }
-    @Published var overlayScale: Double {
-        didSet { UserDefaults.standard.set(overlayScale, forKey: "overlayScale") }
+    var overlayScale: Double {
+        get { overlay.overlayScale } set { overlay.overlayScale = newValue }
     }
-    @Published var overlayLeftSide: Bool {
-        didSet { UserDefaults.standard.set(overlayLeftSide, forKey: "overlayLeftSide") }
+    var overlayLeftSide: Bool {
+        get { overlay.overlayLeftSide } set { overlay.overlayLeftSide = newValue }
     }
-    @Published var overlayTriggerZone: OverlayTriggerZone {
-        didSet { UserDefaults.standard.set(overlayTriggerZone.rawValue, forKey: "overlayTriggerZone") }
+    var overlayTriggerZone: OverlayTriggerZone {
+        get { overlay.overlayTriggerZone } set { overlay.overlayTriggerZone = newValue }
     }
-    @Published var watchersDetailedMode: Bool {
-        didSet { UserDefaults.standard.set(watchersDetailedMode, forKey: "watchersDetailedMode") }
+    var watchersDetailedMode: Bool {
+        get { overlay.watchersDetailedMode } set { overlay.watchersDetailedMode = newValue }
     }
-    @Published var watcherStyle: WatcherStyle {
-        didSet { UserDefaults.standard.set(watcherStyle.rawValue, forKey: "watcherStyle") }
+    var watcherStyle: WatcherStyle {
+        get { overlay.watcherStyle } set { overlay.watcherStyle = newValue }
     }
-    @Published var watcherDisplayMode: WatcherDisplayMode {
-        didSet { UserDefaults.standard.set(watcherDisplayMode.rawValue, forKey: "watcherDisplayMode") }
+    var watcherDisplayMode: WatcherDisplayMode {
+        get { overlay.watcherDisplayMode } set { overlay.watcherDisplayMode = newValue }
     }
-    @Published var watcherScanInterval: WatcherScanInterval {
-        didSet { UserDefaults.standard.set(watcherScanInterval.rawValue, forKey: "watcherScanInterval") }
+    var watcherScanInterval: WatcherScanInterval {
+        get { overlay.watcherScanInterval } set { overlay.watcherScanInterval = newValue }
     }
-    @Published var watcherVisibility: WatcherVisibility {
-        didSet { UserDefaults.standard.set(watcherVisibility.rawValue, forKey: "watcherVisibility") }
+    var watcherVisibility: WatcherVisibility {
+        get { overlay.watcherVisibility } set { overlay.watcherVisibility = newValue }
+    }
+    var watcherAnimationsEnabled: Bool {
+        get { overlay.watcherAnimationsEnabled } set { overlay.watcherAnimationsEnabled = newValue }
     }
 
-    // Performance
-    @Published var watcherAnimationsEnabled: Bool {
-        didSet { UserDefaults.standard.set(watcherAnimationsEnabled, forKey: "watcherAnimationsEnabled") }
-    }
+    // Pacing - extracted into a child ObservableObject domain slice. Views should
+    // prefer `settings.pacing.$x` for bindings; the forwards below keep existing
+    // non-binding call sites compiling without change.
+    @Published var pacing: PacingSettingsStore
+    private var pacingRelay: AnyCancellable?
 
-    // Pacing
-    @Published var pacingMargin: Int {
-        didSet { UserDefaults.standard.set(pacingMargin, forKey: "pacingMargin") }
+    // Backwards-compatible forwards (no $ bindings should target these).
+    var pacingMargin: Int {
+        get { pacing.margin } set { pacing.margin = newValue }
     }
-    /// Workweek pacing: when on, the expected pace only advances over the user's
-    /// active days, so off-days don't make them look ahead of pace.
-    @Published var pacingWorkweekEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(pacingWorkweekEnabled, forKey: "pacingWorkweekEnabled")
-            sharedFileService.updatePacingSchedule(pacingSchedule)
-        }
+    var pacingWorkweekEnabled: Bool {
+        get { pacing.workweekEnabled } set { pacing.workweekEnabled = newValue }
     }
-    /// Active weekday numbers (Gregorian 1=Sun ... 7=Sat) used when workweek
-    /// pacing is on. Persisted as a sorted array.
-    @Published var pacingActiveDays: Set<Int> {
-        didSet {
-            UserDefaults.standard.set(Array(pacingActiveDays).sorted(), forKey: "pacingActiveDays")
-            sharedFileService.updatePacingSchedule(pacingSchedule)
-        }
+    var pacingActiveDays: Set<Int> {
+        get { pacing.activeDays } set { pacing.activeDays = newValue }
     }
-    /// When on, workweek pacing is further narrowed to active hours of the day.
-    @Published var pacingHoursEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(pacingHoursEnabled, forKey: "pacingHoursEnabled")
-            sharedFileService.updatePacingSchedule(pacingSchedule)
-        }
+    var pacingHoursEnabled: Bool {
+        get { pacing.hoursEnabled } set { pacing.hoursEnabled = newValue }
     }
-    /// Start hour (0...23) of the active window, applied to every active day.
-    @Published var pacingStartHour: Int {
-        didSet {
-            UserDefaults.standard.set(pacingStartHour, forKey: "pacingStartHour")
-            sharedFileService.updatePacingSchedule(pacingSchedule)
-        }
+    var pacingStartHour: Int {
+        get { pacing.startHour } set { pacing.startHour = newValue }
     }
-    /// End hour (1...24) of the active window, applied to every active day.
-    @Published var pacingEndHour: Int {
-        didSet {
-            UserDefaults.standard.set(pacingEndHour, forKey: "pacingEndHour")
-            sharedFileService.updatePacingSchedule(pacingSchedule)
-        }
+    var pacingEndHour: Int {
+        get { pacing.endHour } set { pacing.endHour = newValue }
     }
-
     /// The resolved schedule handed to the pacing calculator + widget.
-    var pacingSchedule: PacingSchedule {
-        PacingSchedule(
-            enabled: pacingWorkweekEnabled,
-            activeDays: pacingActiveDays,
-            hoursEnabled: pacingHoursEnabled,
-            startHour: pacingStartHour,
-            endHour: pacingEndHour
-        )
-    }
+    var pacingSchedule: PacingSchedule { pacing.schedule }
 
-    // Notifications - master switch and per-event toggles.
-    // When `notificationsEnabled` is false, NotificationService.evaluate
-    // bails out before touching the per-event toggles. The user keeps their
-    // granular config while silencing the whole pipeline.
-    @Published var notificationsEnabled: Bool {
-        didSet { UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled") }
+    // Notifications - extracted into a child ObservableObject domain slice, same
+    // pattern as `pacing`. Views should prefer `settings.notification.$x` for
+    // bindings; the forwards below keep existing non-binding call sites
+    // compiling without change.
+    @Published var notification: NotificationSettingsStore
+    private var notificationRelay: AnyCancellable?
+
+    // Backwards-compatible forwards (no $ bindings should target these).
+    var notificationsEnabled: Bool {
+        get { notification.enabled } set { notification.enabled = newValue }
     }
-    @Published var notifTrackFiveHour: Bool {
-        didSet { UserDefaults.standard.set(notifTrackFiveHour, forKey: "notifTrackFiveHour") }
+    var notifTrackFiveHour: Bool {
+        get { notification.trackFiveHour } set { notification.trackFiveHour = newValue }
     }
-    @Published var notifTrackWeekly: Bool {
-        didSet { UserDefaults.standard.set(notifTrackWeekly, forKey: "notifTrackWeekly") }
+    var notifTrackWeekly: Bool {
+        get { notification.trackWeekly } set { notification.trackWeekly = newValue }
     }
-    @Published var notifTrackSonnet: Bool {
-        didSet { UserDefaults.standard.set(notifTrackSonnet, forKey: "notifTrackSonnet") }
+    var notifTrackSonnet: Bool {
+        get { notification.trackSonnet } set { notification.trackSonnet = newValue }
     }
-    @Published var notifTrackDesign: Bool {
-        didSet { UserDefaults.standard.set(notifTrackDesign, forKey: "notifTrackDesign") }
+    var notifTrackDesign: Bool {
+        get { notification.trackDesign } set { notification.trackDesign = newValue }
     }
-    /// When false, only escalations (orange / red) fire. Recovery to green stays silent.
-    @Published var notifSendRecovery: Bool {
-        didSet { UserDefaults.standard.set(notifSendRecovery, forKey: "notifSendRecovery") }
+    var notifSendRecovery: Bool {
+        get { notification.sendRecovery } set { notification.sendRecovery = newValue }
     }
-    /// Pacing zone transitions
-    @Published var notifPacingHot: Bool {
-        didSet { UserDefaults.standard.set(notifPacingHot, forKey: "notifPacingHot") }
+    var notifPacingHot: Bool {
+        get { notification.pacingHot } set { notification.pacingHot = newValue }
     }
-    @Published var notifPacingWarning: Bool {
-        didSet { UserDefaults.standard.set(notifPacingWarning, forKey: "notifPacingWarning") }
+    var notifPacingWarning: Bool {
+        get { notification.pacingWarning } set { notification.pacingWarning = newValue }
     }
-    /// Scheduled reminders (user-configurable offset before reset).
-    @Published var notifResetReminderSession: Bool {
-        didSet { UserDefaults.standard.set(notifResetReminderSession, forKey: "notifResetReminderSession") }
+    var notifResetReminderSession: Bool {
+        get { notification.resetReminderSession } set { notification.resetReminderSession = newValue }
     }
-    @Published var notifResetReminderWeekly: Bool {
-        didSet { UserDefaults.standard.set(notifResetReminderWeekly, forKey: "notifResetReminderWeekly") }
+    var notifResetReminderWeekly: Bool {
+        get { notification.resetReminderWeekly } set { notification.resetReminderWeekly = newValue }
     }
-    /// Minutes before the 5h session resets at which to fire the reminder.
-    /// Defaults to 15. Allowed values are validated by the picker, not enforced here.
-    @Published var notifResetReminderSessionOffset: Int {
-        didSet { UserDefaults.standard.set(notifResetReminderSessionOffset, forKey: "notifResetReminderSessionOffset") }
+    var notifResetReminderSessionOffset: Int {
+        get { notification.resetReminderSessionOffset } set { notification.resetReminderSessionOffset = newValue }
     }
-    /// Minutes before the weekly bucket resets at which to fire the reminder.
-    /// Defaults to 60.
-    @Published var notifResetReminderWeeklyOffset: Int {
-        didSet { UserDefaults.standard.set(notifResetReminderWeeklyOffset, forKey: "notifResetReminderWeeklyOffset") }
+    var notifResetReminderWeeklyOffset: Int {
+        get { notification.resetReminderWeeklyOffset } set { notification.resetReminderWeeklyOffset = newValue }
     }
-    /// Paid extra credits pool transitions
-    @Published var notifExtraCredits: Bool {
-        didSet { UserDefaults.standard.set(notifExtraCredits, forKey: "notifExtraCredits") }
+    var notifExtraCredits: Bool {
+        get { notification.extraCredits } set { notification.extraCredits = newValue }
     }
-    /// Token expired / authentication issues
-    @Published var notifTokenExpired: Bool {
-        didSet { UserDefaults.standard.set(notifTokenExpired, forKey: "notifTokenExpired") }
+    var notifTokenExpired: Bool {
+        get { notification.tokenExpired } set { notification.tokenExpired = newValue }
     }
 
     // Refresh interval (seconds) - minimum 180 (3min), default 300 (5min)
@@ -279,12 +229,12 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(statusShowMenuBarBadge, forKey: "statusShowMenuBarBadge") }
     }
     /// Notify when a vendor goes degraded/down.
-    @Published var notifVendorDegraded: Bool {
-        didSet { UserDefaults.standard.set(notifVendorDegraded, forKey: "notifVendorDegraded") }
+    var notifVendorDegraded: Bool {
+        get { notification.vendorDegraded } set { notification.vendorDegraded = newValue }
     }
     /// Notify when a vendor recovers.
-    @Published var notifVendorRestored: Bool {
-        didSet { UserDefaults.standard.set(notifVendorRestored, forKey: "notifVendorRestored") }
+    var notifVendorRestored: Bool {
+        get { notification.vendorRestored } set { notification.vendorRestored = newValue }
     }
 
     var proxyConfig: ProxyConfig {
@@ -358,8 +308,11 @@ final class SettingsStore: ObservableObject {
         self.tokenProvider = tokenProvider
         self.sharedFileService = sharedFileService
 
-        self.showMenuBar = UserDefaults.standard.object(forKey: "showMenuBar") as? Bool ?? true
-        self.launchInBackground = Self.boolDefault(key: "launchInBackground", default: false)
+        self.pacing = PacingSettingsStore(sharedFileService: sharedFileService)
+        self.notification = NotificationSettingsStore()
+        self.overlay = OverlaySettingsStore()
+        self.display = DisplaySettingsStore(sharedFileService: sharedFileService)
+
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         self.proxyEnabled = UserDefaults.standard.bool(forKey: "proxyEnabled")
         self.proxyHost = UserDefaults.standard.string(forKey: "proxyHost") ?? "127.0.0.1"
@@ -367,25 +320,6 @@ final class SettingsStore: ObservableObject {
             let port = UserDefaults.standard.integer(forKey: "proxyPort")
             return port > 0 ? port : 1080
         }()
-        self.overlayEnabled = UserDefaults.standard.object(forKey: "overlayEnabled") as? Bool ?? true
-        self.overlayDockEffect = UserDefaults.standard.object(forKey: "overlayDockEffect") as? Bool ?? true
-        self.overlayScale = UserDefaults.standard.object(forKey: "overlayScale") as? Double ?? 1.1
-        self.overlayLeftSide = UserDefaults.standard.bool(forKey: "overlayLeftSide")
-        self.overlayTriggerZone = OverlayTriggerZone(
-            rawValue: UserDefaults.standard.string(forKey: "overlayTriggerZone") ?? "medium"
-        ) ?? .medium
-        self.watchersDetailedMode = UserDefaults.standard.object(forKey: "watchersDetailedMode") as? Bool ?? true
-        self.watcherStyle = WatcherStyle(
-            rawValue: UserDefaults.standard.string(forKey: "watcherStyle") ?? "frost"
-        ) ?? .frost
-        self.watcherDisplayMode = WatcherDisplayMode(
-            rawValue: UserDefaults.standard.string(forKey: "watcherDisplayMode") ?? "branchPriority"
-        ) ?? .branchPriority
-        self.watcherScanInterval = (UserDefaults.standard.object(forKey: "watcherScanInterval") as? Int)
-            .flatMap(WatcherScanInterval.init(rawValue:)) ?? .twoSeconds
-        self.watcherVisibility = (UserDefaults.standard.object(forKey: "watcherVisibility") as? Int)
-            .flatMap(WatcherVisibility.init(rawValue:)) ?? .thirtyMinutes
-        self.watcherAnimationsEnabled = UserDefaults.standard.object(forKey: "watcherAnimationsEnabled") as? Bool ?? true
         // Reconcile the stored toggle with the actual SMAppService state - user
         // might have flipped it from System Settings without going through the
         // app, and we must not diverge from macOS's view of the world.
@@ -398,147 +332,16 @@ final class SettingsStore: ObservableObject {
             // toggle; the init path just mirrors the OS state).
             UserDefaults.standard.set(systemLaunchAtLogin, forKey: "launchAtLoginEnabled")
         }
-        self.pacingMargin = {
-            let val = UserDefaults.standard.integer(forKey: "pacingMargin")
-            let raw = val > 0 ? val : 10
-            let snapped = (Int((Double(raw) / 5.0).rounded()) * 5)
-            return min(30, max(5, snapped))
-        }()
-        // Workweek pacing. Off by default; active days default to Mon-Fri.
-        let initialWorkweekEnabled = Self.boolDefault(key: "pacingWorkweekEnabled", default: false)
-        let initialActiveDays: Set<Int> = {
-            if let stored = UserDefaults.standard.array(forKey: "pacingActiveDays") as? [Int], !stored.isEmpty {
-                return Set(stored)
-            }
-            return PacingSchedule.workweek
-        }()
-        let initialHoursEnabled = Self.boolDefault(key: "pacingHoursEnabled", default: false)
-        let initialStartHour = Self.intDefault(key: "pacingStartHour", default: 9)
-        let initialEndHour = Self.intDefault(key: "pacingEndHour", default: 18)
-        self.pacingWorkweekEnabled = initialWorkweekEnabled
-        self.pacingActiveDays = initialActiveDays
-        self.pacingHoursEnabled = initialHoursEnabled
-        self.pacingStartHour = initialStartHour
-        self.pacingEndHour = initialEndHour
-        // Mirror the resolved schedule to the shared file so the (sandboxed)
-        // widget computes pacing identically on first paint.
-        sharedFileService.updatePacingSchedule(
-            PacingSchedule(
-                enabled: initialWorkweekEnabled,
-                activeDays: initialActiveDays,
-                hoursEnabled: initialHoursEnabled,
-                startHour: initialStartHour,
-                endHour: initialEndHour
-            )
-        )
         self.refreshInterval = {
             let val = UserDefaults.standard.integer(forKey: "refreshInterval")
             return val >= 180 ? val : 300
         }()
-        self.outageMonitoringEnabled = Self.boolDefault(key: "outageMonitoringEnabled", default: true)
+        self.outageMonitoringEnabled = SettingsDefaults.bool(key: "outageMonitoringEnabled", default: true)
         self.statusPollInterval = {
             let val = UserDefaults.standard.integer(forKey: "statusPollInterval")
             return val >= 60 ? val : 300
         }()
-        self.statusShowMenuBarBadge = Self.boolDefault(key: "statusShowMenuBarBadge", default: true)
-        self.notifVendorDegraded = Self.boolDefault(key: "notifVendorDegraded", default: true)
-        self.notifVendorRestored = Self.boolDefault(key: "notifVendorRestored", default: true)
-
-        // Notification toggles. Defaults below apply only on first launch
-        // (no value yet in UserDefaults) - per `boolDefault` semantics.
-        self.notificationsEnabled = Self.boolDefault(key: "notificationsEnabled", default: true)
-        self.notifTrackFiveHour = Self.boolDefault(key: "notifTrackFiveHour", default: true)
-        self.notifTrackWeekly = Self.boolDefault(key: "notifTrackWeekly", default: true)
-        self.notifTrackSonnet = Self.boolDefault(key: "notifTrackSonnet", default: false)
-        self.notifTrackDesign = Self.boolDefault(key: "notifTrackDesign", default: true)
-        self.notifSendRecovery = Self.boolDefault(key: "notifSendRecovery", default: true)
-        self.notifPacingHot = Self.boolDefault(key: "notifPacingHot", default: true)
-        self.notifPacingWarning = Self.boolDefault(key: "notifPacingWarning", default: false)
-        self.notifResetReminderSession = Self.boolDefault(key: "notifResetReminderSession", default: false)
-        self.notifResetReminderWeekly = Self.boolDefault(key: "notifResetReminderWeekly", default: false)
-        self.notifResetReminderSessionOffset = Self.intDefault(key: "notifResetReminderSessionOffset", default: 15)
-        self.notifResetReminderWeeklyOffset = Self.intDefault(key: "notifResetReminderWeeklyOffset", default: 60)
-        self.notifExtraCredits = Self.boolDefault(key: "notifExtraCredits", default: true)
-        self.notifTokenExpired = Self.boolDefault(key: "notifTokenExpired", default: false)
-        self.resetDisplayFormat = ResetDisplayFormat(
-            rawValue: UserDefaults.standard.string(forKey: "resetDisplayFormat") ?? "relative"
-        ) ?? .relative
-        self.resetTextColorHex = UserDefaults.standard.string(forKey: "resetTextColorHex") ?? ""
-        self.sessionPeriodColorHex = UserDefaults.standard.string(forKey: "sessionPeriodColorHex") ?? ""
-        // Default ON. Migration: if the user had explicitly set the legacy
-        // "smartResetColor" key, respect that decision; otherwise opt them into
-        // smart coloring globally.
-        let initialSmartColor: Bool = {
-            if let v = UserDefaults.standard.object(forKey: "smartColorEnabled") as? Bool { return v }
-            if let legacy = UserDefaults.standard.object(forKey: "smartResetColor") as? Bool { return legacy }
-            return true
-        }()
-        self.smartColorEnabled = initialSmartColor
-        // Push the resolved value to the shared file so the (sandboxed) widget
-        // sees the same setting on first launch without waiting for a toggle.
-        sharedFileService.updateSmartColorEnabled(initialSmartColor)
-        let initialProfile = SmartColorProfile(
-            rawValue: UserDefaults.standard.string(forKey: "smartColorProfile") ?? SmartColorProfile.default.rawValue
-        ) ?? .default
-        self.smartColorProfile = initialProfile
-        // Mirror the resolved profile to the shared file so the (sandboxed)
-        // widget picks it up at first paint without waiting for a toggle.
-        sharedFileService.updateSmartColorProfile(initialProfile)
-        self.glowIntensity = DS.GlowIntensity(
-            rawValue: UserDefaults.standard.string(forKey: "glowIntensity") ?? DS.GlowIntensity.glow.rawValue
-        ) ?? .glow
-        self.menuBarStyle = MenuBarStyle(
-            rawValue: UserDefaults.standard.string(forKey: "menuBarStyle") ?? "classic"
-        ) ?? .classic
-        self.pacingShape = PacingShape(
-            rawValue: UserDefaults.standard.string(forKey: "pacingShape") ?? "circle"
-        ) ?? .circle
-
-        // Migrate the legacy global `pacingDisplayMode` into the two per-bucket
-        // settings so existing users keep the mode they had. If either per-bucket
-        // value has been saved before, prefer it.
-        let legacyMode = PacingDisplayMode(
-            rawValue: UserDefaults.standard.string(forKey: "pacingDisplayMode") ?? "dotDelta"
-        ) ?? .dotDelta
-        self.sessionPacingDisplayMode = PacingDisplayMode(
-            rawValue: UserDefaults.standard.string(forKey: "sessionPacingDisplayMode") ?? legacyMode.rawValue
-        ) ?? legacyMode
-        self.weeklyPacingDisplayMode = PacingDisplayMode(
-            rawValue: UserDefaults.standard.string(forKey: "weeklyPacingDisplayMode") ?? legacyMode.rawValue
-        ) ?? legacyMode
-        var legacyPinned: Set<MetricID>
-        if let saved = UserDefaults.standard.stringArray(forKey: "pinnedMetrics") {
-            // Migrate legacy "pacing" (covered weekly only) to the explicit weeklyPacing id.
-            let normalized = saved.map { $0 == "pacing" ? "weeklyPacing" : $0 }
-            legacyPinned = Set(normalized.compactMap { MetricID(rawValue: $0) })
-        } else {
-            legacyPinned = [.fiveHour, .sevenDay]
-        }
-
-        // Migrate the old `showSessionReset` boolean into the new `.sessionReset`
-        // pinnable metric so existing users keep seeing the countdown they opted
-        // in to. The boolean itself is removed below.
-        if UserDefaults.standard.object(forKey: "showSessionReset") != nil,
-           UserDefaults.standard.bool(forKey: "showSessionReset") {
-            legacyPinned.insert(.sessionReset)
-        }
-        self.pinnedMetrics = legacyPinned
-
-        // displaySonnet and displayDesign default to false for everyone -
-        // the satellites are opt-in. Users who had the old behaviour (sonnet
-        // pinned automatically toggled displaySonnet to true) keep whatever
-        // they had saved.
-        if UserDefaults.standard.object(forKey: "displaySonnet") != nil {
-            self.displaySonnet = UserDefaults.standard.bool(forKey: "displaySonnet")
-        } else {
-            self.displaySonnet = false
-        }
-        self.displayDesign = UserDefaults.standard.object(forKey: "displayDesign") != nil
-            ? UserDefaults.standard.bool(forKey: "displayDesign")
-            : false
-        self.displayExtraCredits = UserDefaults.standard.object(forKey: "displayExtraCredits") != nil
-            ? UserDefaults.standard.bool(forKey: "displayExtraCredits")
-            : false
+        self.statusShowMenuBarBadge = SettingsDefaults.bool(key: "statusShowMenuBarBadge", default: true)
 
         // Popover layout config. Fresh install or decode failure -> defaults
         // that reproduce the v4.10.x popover visually (Classic variant, all
@@ -549,6 +352,24 @@ final class SettingsStore: ObservableObject {
         } else {
             self.popoverConfig = .default
         }
+
+        // The piège: a @Published child only emits the parent's objectWillChange
+        // when reassigned, not when one of ITS @Published changes. Relay it so a
+        // view observing `settings` re-renders on `settings.pacing.*` changes.
+        // Wired after all stored properties are initialized so the closure can
+        // safely capture self.
+        self.pacingRelay = pacing.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        self.notificationRelay = notification.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        self.overlayRelay = overlay.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        self.displayRelay = display.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
     }
 
     // MARK: - Popover persistence
@@ -556,26 +377,6 @@ final class SettingsStore: ObservableObject {
     private func savePopoverConfig() {
         guard let data = try? JSONEncoder().encode(popoverConfig) else { return }
         UserDefaults.standard.set(data, forKey: "popoverConfig")
-    }
-
-    /// Reads a Bool from UserDefaults but distinguishes "absent" from "false".
-    /// `UserDefaults.bool(forKey:)` returns false for missing keys, which would
-    /// silently override our intended default. Using `object(forKey:)` lets us
-    /// fall back only when the key has never been written.
-    private static func boolDefault(key: String, default fallback: Bool) -> Bool {
-        if let stored = UserDefaults.standard.object(forKey: key) as? Bool {
-            return stored
-        }
-        return fallback
-    }
-
-    /// Same idea as `boolDefault` but for Int. `UserDefaults.integer(forKey:)`
-    /// returns 0 for missing keys, which we can't distinguish from a stored 0.
-    private static func intDefault(key: String, default fallback: Int) -> Int {
-        if let stored = UserDefaults.standard.object(forKey: key) as? Int {
-            return stored
-        }
-        return fallback
     }
 
     /// Ensures a decoded config still satisfies the validation rules (at least
@@ -599,10 +400,6 @@ final class SettingsStore: ObservableObject {
         } else {
             pinnedMetrics.insert(metric)
         }
-    }
-
-    private func savePinnedMetrics() {
-        UserDefaults.standard.set(pinnedMetrics.map(\.rawValue), forKey: "pinnedMetrics")
     }
 
     // MARK: - Notifications

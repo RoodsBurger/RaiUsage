@@ -92,7 +92,7 @@ struct HistoryView: View {
 
         return HStack(alignment: .center, spacing: DS.Spacing.lg) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(formatTokens(total))
+                Text(TokenFormatter.compact(total))
                     .font(.system(size: 36, weight: .heavy, design: .rounded))
                     .foregroundStyle(DS.Palette.textPrimary)
                     .monospacedDigit()
@@ -168,7 +168,7 @@ struct HistoryView: View {
             Text(String(format: "%@%.0f%%", sign, percent))
                 .font(.system(size: 10, weight: .semibold))
                 .monospacedDigit()
-            Text(String(format: String(localized: "history.hero.deltaSuffix"), formatTokens(previous)))
+            Text(String(format: String(localized: "history.hero.deltaSuffix"), TokenFormatter.compact(previous)))
                 .font(.system(size: 10, weight: .medium))
                 .monospacedDigit()
                 .opacity(0.65)
@@ -184,7 +184,7 @@ struct HistoryView: View {
 
     private func breakdownLine(label: String.LocalizationValue, value: Int) -> some View {
         HStack(spacing: 6) {
-            Text(formatTokens(value))
+            Text(TokenFormatter.compact(value))
                 .foregroundStyle(DS.Palette.textPrimary)
                 .fontWeight(.semibold)
                 .monospacedDigit()
@@ -316,7 +316,7 @@ struct HistoryView: View {
                 }
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
-                Text(formatTokens(total))
+                Text(TokenFormatter.compact(total))
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(isPresent ? DS.Palette.textPrimary : DS.Palette.textTertiary.opacity(0.5))
@@ -360,12 +360,12 @@ struct HistoryView: View {
 
     private var chartContent: some View {
         let visibleKinds = ModelKind.stackOrder.filter { kind in
-            !filteredOut(kind) && totalsByKind[kind] != nil
+            !filteredOut(kind) && store.totalsByKind[kind] != nil
         }
-        let bucketsArray = filteredBuckets
+        let bucketsArray = store.filteredBuckets
         let count = bucketsArray.count
         let filteredTotal = bucketsArray.reduce(0) { $0 + $1.totalActive }
-        let domain = chartDomain
+        let domain = ChartDomainCalculator.domain(range: store.range)
 
         return ZStack {
             Chart {
@@ -438,7 +438,7 @@ struct HistoryView: View {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
                 AxisValueLabel {
                     if let intValue = value.as(Int.self) {
-                        Text(formatTokens(intValue))
+                        Text(TokenFormatter.compact(intValue))
                             .font(.system(size: 9))
                             .foregroundStyle(DS.Palette.textTertiary.opacity(0.5))
                             .monospacedDigit()
@@ -539,7 +539,7 @@ struct HistoryView: View {
                 .textCase(.uppercase)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(formatTokens(total))
+                Text(TokenFormatter.compact(total))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(DS.Palette.textPrimary)
                     .monospacedDigit()
@@ -565,7 +565,7 @@ struct HistoryView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(DS.Palette.textSecondary)
                             Spacer(minLength: 16)
-                            Text(formatTokens(bucket.tokensByModel[kind] ?? 0))
+                            Text(TokenFormatter.compact(bucket.tokensByModel[kind] ?? 0))
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(DS.Palette.textPrimary)
                                 .monospacedDigit()
@@ -614,36 +614,6 @@ struct HistoryView: View {
             return date.formatted(.dateTime.day().month(.abbreviated).hour(.defaultDigits(amPM: .omitted)).minute())
         }
         return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-    }
-
-    /// Date range the chart should always span, even when only one bucket has
-    /// data. Pinning the X scale prevents SwiftUI Charts from auto-fitting a
-    /// single bar across the full chart width.
-    ///
-    /// Both edges round to the bucket boundary that fully contains the
-    /// edge bar:
-    /// - end -> next hour / next day so today's bar (anchored at start of
-    ///   period) doesn't clip on the right
-    /// - start -> start of the bucket that contains `now - range.seconds`
-    ///   so the leftmost bar doesn't clip when the rolling window cuts a
-    ///   daily bucket mid-day
-    private var chartDomain: (start: Date, end: Date) {
-        let now = Date()
-        let cal = Calendar.current
-        let rawStart = now.addingTimeInterval(-store.range.seconds)
-        let start: Date
-        let end: Date
-        if store.range.isHourly {
-            let endComps = cal.dateComponents([.year, .month, .day, .hour], from: now)
-            let endOfHour = cal.date(from: endComps) ?? now
-            end = cal.date(byAdding: .hour, value: 1, to: endOfHour) ?? now
-            let startComps = cal.dateComponents([.year, .month, .day, .hour], from: rawStart)
-            start = cal.date(from: startComps) ?? rawStart
-        } else {
-            end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now)) ?? now
-            start = cal.startOfDay(for: rawStart)
-        }
-        return (start: start, end: end)
     }
 
     /// Centered overlay shown when the active filter zeroes out every bucket
@@ -706,7 +676,7 @@ struct HistoryView: View {
             chipCard(
                 label: "history.chip.cacheHit",
                 value: formatPercent(store.summary.cacheHitRate * 100),
-                sub: String(format: String(localized: "history.chip.cacheHit.sub"), formatTokens(store.summary.totalCached))
+                sub: String(format: String(localized: "history.chip.cacheHit.sub"), TokenFormatter.compact(store.summary.totalCached))
             )
             chipCard(
                 label: "history.chip.heaviest",
@@ -725,7 +695,7 @@ struct HistoryView: View {
             )
             chipCard(
                 label: "history.chip.avgPerSession",
-                value: formatTokens(store.summary.averagePerSession),
+                value: TokenFormatter.compact(store.summary.averagePerSession),
                 sub: String(format: String(localized: "history.chip.avgPerSession.sub"), store.summary.sessionsCount)
             )
         }
@@ -754,29 +724,6 @@ struct HistoryView: View {
 
     // MARK: - Computed presentation helpers
 
-    private var filteredBuckets: [HistoryBucket] {
-        switch store.filter {
-        case .all:
-            return store.buckets
-        case .family(let family):
-            return store.buckets.map { bucket in
-                var b = bucket
-                b.tokensByModel = bucket.tokensByModel.filter { $0.key.family == family }
-                return b
-            }
-        }
-    }
-
-    private var totalsByKind: [ModelKind: Int] {
-        var totals: [ModelKind: Int] = [:]
-        for bucket in store.buckets {
-            for (kind, tokens) in bucket.tokensByModel {
-                totals[kind, default: 0] += tokens
-            }
-        }
-        return totals
-    }
-
     private func filteredOut(_ kind: ModelKind) -> Bool {
         switch store.filter {
         case .all: return false
@@ -795,7 +742,7 @@ struct HistoryView: View {
 
     private var heaviestSub: String {
         guard let bucket = store.summary.heaviestBucket else { return "—" }
-        return String(format: String(localized: "history.chip.heaviest.sub"), formatTokens(bucket.totalActive))
+        return String(format: String(localized: "history.chip.heaviest.sub"), TokenFormatter.compact(bucket.totalActive))
     }
 
     private var topProjectLabel: String {
@@ -807,7 +754,7 @@ struct HistoryView: View {
 
     private var topProjectSub: String {
         guard let project = store.summary.topProject else { return "—" }
-        return String(format: String(localized: "history.chip.topProject.sub"), formatTokens(project.tokens))
+        return String(format: String(localized: "history.chip.topProject.sub"), TokenFormatter.compact(project.tokens))
     }
 
     private var topModelLabel: String {
@@ -822,21 +769,6 @@ struct HistoryView: View {
         let total = store.summary.totalActive
         let pct = total == 0 ? 0 : Int(Double(model.tokens) / Double(total) * 100)
         return String(format: String(localized: "history.chip.topModel.sub"), pct)
-    }
-
-    // MARK: - Formatting
-
-    /// 1.2M / 540k / 96 etc. SI prefixes, no decimals below 10k.
-    private func formatTokens(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            let m = Double(value) / 1_000_000
-            return String(format: m >= 10 ? "%.0fM" : "%.1fM", m)
-        }
-        if value >= 1_000 {
-            let k = Double(value) / 1_000
-            return String(format: k >= 10 ? "%.0fk" : "%.1fk", k)
-        }
-        return "\(value)"
     }
 
     // MARK: - Color helpers

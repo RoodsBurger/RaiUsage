@@ -8,40 +8,28 @@ import SwiftUI
 @MainActor
 enum PopoverColors {
     static func gauge(pct: Int, resetDate: Date?, windowDuration: TimeInterval, theme: ThemeStore, settings: SettingsStore) -> Color {
-        // Smart Color is a time-aware risk model: without a reset window
-        // (e.g. the Extra Credits pool) it has nothing to project against, so
-        // we fall back to the static warning/critical threshold ladder. This
-        // keeps Extra Credits coloured identically across the menu bar,
-        // popover, dashboard and widgets.
-        if settings.smartColorEnabled, let resetDate, windowDuration > 0 {
-            return theme.current.smartGaugeColor(
-                utilization: Double(pct),
-                resetDate: resetDate,
-                windowDuration: windowDuration,
-                thresholds: theme.thresholds,
-                pacingMargin: Double(settings.pacingMargin),
-                profile: settings.smartColorProfile
-            )
-        }
-        return theme.current.gaugeColor(for: Double(pct), thresholds: theme.thresholds)
+        GaugeColorResolver.color(
+            mode: GaugeColorResolver.mode(smartColorEnabled: settings.smartColorEnabled, windowDuration: windowDuration),
+            utilization: pct,
+            resetDate: resetDate,
+            windowDuration: windowDuration,
+            theme: theme.current,
+            thresholds: theme.thresholds,
+            pacingMargin: Double(settings.pacingMargin),
+            profile: settings.smartColorProfile
+        )
     }
 
     static func gaugeGradient(pct: Int, resetDate: Date?, windowDuration: TimeInterval, theme: ThemeStore, settings: SettingsStore) -> LinearGradient {
-        if settings.smartColorEnabled, let resetDate, windowDuration > 0 {
-            return theme.current.smartGaugeGradient(
-                utilization: Double(pct),
-                resetDate: resetDate,
-                windowDuration: windowDuration,
-                thresholds: theme.thresholds,
-                pacingMargin: Double(settings.pacingMargin),
-                startPoint: .leading,
-                endPoint: .trailing,
-                profile: settings.smartColorProfile
-            )
-        }
-        return theme.current.gaugeGradient(
-            for: Double(pct),
+        GaugeColorResolver.gradient(
+            mode: GaugeColorResolver.mode(smartColorEnabled: settings.smartColorEnabled, windowDuration: windowDuration),
+            utilization: pct,
+            resetDate: resetDate,
+            windowDuration: windowDuration,
+            theme: theme.current,
             thresholds: theme.thresholds,
+            pacingMargin: Double(settings.pacingMargin),
+            profile: settings.smartColorProfile,
             startPoint: .leading,
             endPoint: .trailing
         )

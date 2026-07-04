@@ -196,4 +196,44 @@ final class HistoryStore: ObservableObject {
         }
         return totals
     }
+
+    /// Total active tokens per `ModelKind` across the given buckets. Pure and
+    /// static so it can be unit-tested without a MainActor store instance.
+    /// Used by the chart to decide which kinds have any data to stack.
+    nonisolated static func totalsByKind(in buckets: [HistoryBucket]) -> [ModelKind: Int] {
+        var totals: [ModelKind: Int] = [:]
+        for bucket in buckets {
+            for (kind, tokens) in bucket.tokensByModel {
+                totals[kind, default: 0] += tokens
+            }
+        }
+        return totals
+    }
+
+    /// Instance accessor over the currently loaded (unfiltered) buckets.
+    var totalsByKind: [ModelKind: Int] {
+        Self.totalsByKind(in: buckets)
+    }
+
+    /// Chart-facing filter: keeps every field intact and narrows only
+    /// `tokensByModel` to the selected family. Distinct from the private
+    /// `applyFilter` used by the summary, which additionally scales the
+    /// cache counters. Pure + static for unit tests.
+    nonisolated static func bucketsForChart(_ buckets: [HistoryBucket], filter: HistoryFilter) -> [HistoryBucket] {
+        switch filter {
+        case .all:
+            return buckets
+        case .family(let family):
+            return buckets.map { bucket in
+                var b = bucket
+                b.tokensByModel = bucket.tokensByModel.filter { $0.key.family == family }
+                return b
+            }
+        }
+    }
+
+    /// Instance accessor over the loaded buckets with the active filter applied.
+    var filteredBuckets: [HistoryBucket] {
+        Self.bucketsForChart(buckets, filter: filter)
+    }
 }

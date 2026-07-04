@@ -57,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStore.checkBrewMigration()
         updateStore.checkForUpdates()
 
-        monitorCancellable = settingsStore.$overlayEnabled
+        monitorCancellable = settingsStore.overlay.$overlayEnabled
             .dropFirst()
             .sink { [weak self] enabled in
                 guard let self else { return }
@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-        settingsStore.$watcherScanInterval
+        settingsStore.overlay.$watcherScanInterval
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] interval in
@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        settingsStore.$watcherVisibility
+        settingsStore.overlay.$watcherVisibility
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] visibility in

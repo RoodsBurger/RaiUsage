@@ -8,6 +8,9 @@ final class StatusBarController: NSObject {
     private let popover = NSPopover()
     private var dashboardWindow: NSWindow?
     private var eventMonitor: Any?
+    private var localKeyMonitor: Any?
+    private var appDeactivateObserver: NSObjectProtocol?
+    private var spaceChangeObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     private var countdownCancellable: AnyCancellable?
 
@@ -79,7 +82,14 @@ final class StatusBarController: NSObject {
     }
 
     private func setupPopover() {
-        popover.behavior = .transient
+        // .applicationDefined (not .transient): NSPopover's own transient
+        // event-tracking dismisses the popover on the first mouse move when it
+        // is opened over a fullscreen-app Space. We keep full control of
+        // dismissal instead (see startPopoverDismissMonitors): click-outside,
+        // Escape, app-deactivation (Cmd-Tab) and Space changes all close it, so
+        // it matches the .transient behaviour on the desktop while no longer
+        // self-dismissing over fullscreen.
+        popover.behavior = .applicationDefined
         popover.appearance = NSAppearance(named: .darkAqua)
     }
 
@@ -115,7 +125,7 @@ final class StatusBarController: NSObject {
             }
             .store(in: &cancellables)
 
-        settingsStore.$pacingMargin
+        settingsStore.pacing.$margin
             .removeDuplicates()
             .sink { [weak self] newMargin in
                 self?.usageStore.pacingMargin = newMargin
@@ -129,11 +139,11 @@ final class StatusBarController: NSObject {
         // recompute and reload the widget (which reads the schedule from the
         // shared file the settingsStore wrote in its didSet).
         Publishers.MergeMany(
-            settingsStore.$pacingWorkweekEnabled.map { _ in () }.eraseToAnyPublisher(),
-            settingsStore.$pacingActiveDays.map { _ in () }.eraseToAnyPublisher(),
-            settingsStore.$pacingHoursEnabled.map { _ in () }.eraseToAnyPublisher(),
-            settingsStore.$pacingStartHour.map { _ in () }.eraseToAnyPublisher(),
-            settingsStore.$pacingEndHour.map { _ in () }.eraseToAnyPublisher()
+            settingsStore.pacing.$workweekEnabled.map { _ in () }.eraseToAnyPublisher(),
+            settingsStore.pacing.$activeDays.map { _ in () }.eraseToAnyPublisher(),
+            settingsStore.pacing.$hoursEnabled.map { _ in () }.eraseToAnyPublisher(),
+            settingsStore.pacing.$startHour.map { _ in () }.eraseToAnyPublisher(),
+            settingsStore.pacing.$endHour.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in
@@ -168,7 +178,7 @@ final class StatusBarController: NSObject {
             }
             .store(in: &cancellables)
 
-        settingsStore.$showMenuBar
+        settingsStore.display.$showMenuBar
             .removeDuplicates()
             .sink { [weak self] visible in
                 self?.statusItem.isVisible = visible
@@ -524,22 +534,59 @@ final class StatusBarController: NSObject {
 
     private func togglePopover() {
         if popover.isShown {
-            popover.performClose(nil)
-            popover.contentViewController = nil
-            stopEventMonitor()
+            dismissPopover()
         } else {
             guard let button = statusItem.button else { return }
             installPopoverContent()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
-            startEventMonitor()
+            stylePopoverWindow()
+            startPopoverDismissMonitors()
         }
     }
 
+    /// Post-show fixes for the popover's own window. Runs on the next runloop
+    /// turn because the NSPopover window isn't attached synchronously after show.
+    private func stylePopoverWindow() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let popoverWindow = self.popover.contentViewController?.view.window else { return }
+
+            // Fullscreen fix: a menu-bar popover opened over a fullscreen-app
+            // Space is created on the default Space, so the cursor over the
+            // visible popover reads as "outside" and the .transient behaviour
+            // dismisses it on the first mouse move. Let the popover window join
+            // the active (fullscreen) Space so the cursor registers as inside.
+            popoverWindow.collectionBehavior.insert(.canJoinAllSpaces)
+            popoverWindow.collectionBehavior.insert(.fullScreenAuxiliary)
+
+            // Arrow-colour fix: on macOS 26 the NSPopoverFrame draws its arrow
+            // with a translucent (glass) material while our content is opaque,
+            // so the bare arrow shows through. There is no NSVisualEffectView to
+            // tint; paint an opaque backing on the frame view itself (which is
+            // clipped to the popover shape, arrow included) below the content.
+            if let frameView = self.popover.contentViewController?.view.superview {
+                // Idempotent: NSPopover reuses the same frame view across opens,
+                // so drop any tint left by a previous open before adding a new one
+                // (otherwise one NSView + layer leaks per open).
+                let tintID = NSUserInterfaceItemIdentifier("popoverArrowTint")
+                frameView.subviews
+                    .filter { $0.identifier == tintID }
+                    .forEach { $0.removeFromSuperview() }
+                let tint = NSView(frame: frameView.bounds)
+                tint.identifier = tintID
+                tint.autoresizingMask = [.width, .height]
+                tint.wantsLayer = true
+                tint.layer?.backgroundColor = Self.popoverBackgroundColor.cgColor
+                frameView.addSubview(tint, positioned: .below, relativeTo: frameView.subviews.first)
+            }
+        }
+    }
+
+    /// Opaque dark shared by the popover layouts (see ClassicLayoutView).
+    private static let popoverBackgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1)
+
     func showDashboard() {
-        popover.performClose(nil)
-        popover.contentViewController = nil
-        stopEventMonitor()
+        dismissPopover()
 
         // Promote to a regular app (Dock icon + app menu) while the dashboard
         // is open so it feels like a real window; windowShouldClose drops back
@@ -667,18 +714,56 @@ final class StatusBarController: NSObject {
 
     // MARK: - Event Monitor
 
-    private func startEventMonitor() {
+    private func startPopoverDismissMonitors() {
+        // Click into another app closes the popover.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.popover.performClose(nil)
-            self?.popover.contentViewController = nil
-            self?.stopEventMonitor()
+            self?.dismissPopover()
+        }
+        // Escape closes it. A key event is delivered to our own app, so it never
+        // reaches the global monitor above - a local monitor is required.
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard event.keyCode == 53 else { return event }   // 53 = Escape
+            self?.dismissPopover()
+            return nil
+        }
+        // App deactivation (Cmd-Tab, clicking another app) and Space changes
+        // close it too, restoring the dismissal .transient gave us for free
+        // before we switched to .applicationDefined for the fullscreen fix.
+        appDeactivateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.dismissPopover()
+        }
+        spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.dismissPopover()
         }
     }
 
-    private func stopEventMonitor() {
+    /// Close the popover and tear down every dismissal monitor/observer.
+    private func dismissPopover() {
+        popover.performClose(nil)
+        popover.contentViewController = nil
+        stopPopoverDismissMonitors()
+    }
+
+    private func stopPopoverDismissMonitors() {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+        if let monitor = localKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            localKeyMonitor = nil
+        }
+        if let observer = appDeactivateObserver {
+            NotificationCenter.default.removeObserver(observer)
+            appDeactivateObserver = nil
+        }
+        if let observer = spaceChangeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            spaceChangeObserver = nil
         }
     }
 }

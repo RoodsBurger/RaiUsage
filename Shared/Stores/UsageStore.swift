@@ -1,11 +1,5 @@
 import SwiftUI
 
-enum RefreshSpeed: TimeInterval {
-    case fast = 120      // After FSEvents token change - 2min
-    case normal = 300    // Steady state - configurable via settings (default 5min)
-    case slow = 1200     // After 429 - 2x normal or 20min minimum
-}
-
 @MainActor
 final class UsageStore: ObservableObject {
     @Published var fiveHourPct: Int = 0
@@ -90,11 +84,7 @@ final class UsageStore: ObservableObject {
 
     /// Effective interval based on current speed + user setting
     var effectiveInterval: TimeInterval {
-        switch currentSpeed {
-        case .fast: return min(120, refreshIntervalSeconds)
-        case .normal: return refreshIntervalSeconds
-        case .slow: return max(refreshIntervalSeconds * 2, 1200)
-        }
+        RateLimitBackoff.effectiveInterval(speed: currentSpeed, baseInterval: refreshIntervalSeconds)
     }
 
     var proxyConfig: ProxyConfig?
@@ -156,18 +146,7 @@ final class UsageStore: ObservableObject {
 
         do {
             let usage = try await repository.refreshUsage(token: token, proxyConfig: proxyConfig)
-            updateUI(from: usage)
-            errorState = .none
-            lastAPIError = nil
-            lastUpdate = Date()
-            // Reset slow speed on success
-            if currentSpeed == .slow {
-                currentSpeed = .normal
-            }
-            retryAfterDate = nil
-            consecutiveRateLimits = 0
-            WidgetReloader.scheduleReload()
-            evaluateNotifications(usage: usage)
+            applySuccess(usage: usage)
         } catch let error as APIError {
             lastAPIError = error.diagnosticSnapshot
             switch error {
@@ -178,17 +157,7 @@ final class UsageStore: ObservableObject {
                 if let freshToken = tokenProvider.currentToken(), freshToken != token {
                     do {
                         let usage = try await repository.refreshUsage(token: freshToken, proxyConfig: proxyConfig)
-                        updateUI(from: usage)
-                        errorState = .none
-                        lastAPIError = nil
-                        lastUpdate = Date()
-                        if currentSpeed == .slow {
-                            currentSpeed = .normal
-                        }
-                        retryAfterDate = nil
-                        consecutiveRateLimits = 0
-                        WidgetReloader.scheduleReload()
-                        evaluateNotifications(usage: usage)
+                        applySuccess(usage: usage)
                         return
                     } catch {
                         // Retry also failed - fall through to set error
@@ -209,22 +178,12 @@ final class UsageStore: ObservableObject {
                 // we honor it. Otherwise use exponential backoff capped at 6h.
                 // Earlier passes (30 min, 1h, 2h, 4h) recover quickly when the
                 // throttle lifts on its own.
-                let backoff: TimeInterval
-                if let r = retryAfter, r > 0 {
-                    backoff = r
-                } else {
-                    consecutiveRateLimits += 1
-                    let exponential: [TimeInterval] = [
-                        30 * 60,   // 30 min
-                        60 * 60,   // 1 h
-                        2 * 3600,  // 2 h
-                        4 * 3600,  // 4 h
-                        6 * 3600   // 6 h cap
-                    ]
-                    let idx = min(consecutiveRateLimits - 1, exponential.count - 1)
-                    backoff = exponential[idx]
-                }
-                retryAfterDate = Date().addingTimeInterval(backoff)
+                let result = RateLimitBackoff.nextRetryDate(
+                    consecutiveRateLimits: consecutiveRateLimits,
+                    serverRetryAfter: retryAfter
+                )
+                consecutiveRateLimits = result.consecutiveRateLimits
+                retryAfterDate = result.date
                 errorState = .rateLimited
             default:
                 errorState = .networkError
@@ -374,6 +333,24 @@ final class UsageStore: ObservableObject {
         } catch {
             // Profile fetch failure is non-critical - don't update errorState
         }
+    }
+
+    /// Applies a successful usage fetch: updates the published UI state, clears
+    /// every error/backoff field, resets the adaptive speed, and fires the
+    /// notification + widget side effects. Shared by the nominal path and the
+    /// post-401 retry so the two can never drift.
+    private func applySuccess(usage: UsageResponse) {
+        updateUI(from: usage)
+        errorState = .none
+        lastAPIError = nil
+        lastUpdate = Date()
+        if currentSpeed == .slow {
+            currentSpeed = .normal
+        }
+        retryAfterDate = nil
+        consecutiveRateLimits = 0
+        WidgetReloader.scheduleReload()
+        evaluateNotifications(usage: usage)
     }
 
     // MARK: - Private

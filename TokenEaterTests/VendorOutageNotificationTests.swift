@@ -9,6 +9,13 @@ struct VendorOutageNotificationTests {
         UserDefaults.standard.removeObject(forKey: "lastVendorHealth_claude")
     }
 
+    /// Inject mocks so construction never touches the real UNUserNotificationCenter,
+    /// which throws in the xctest host (no bundle). checkVendorHealth persists the
+    /// health to UserDefaults directly, which is what these tests assert on.
+    private func makeService() -> NotificationService {
+        NotificationService(center: MockNotificationCenter(), stateStore: MockNotificationStateStore())
+    }
+
     private func toggles(degraded: Bool = true, restored: Bool = true, master: Bool = true) -> NotificationToggles {
         NotificationToggles(
             masterEnabled: master,
@@ -34,7 +41,7 @@ struct VendorOutageNotificationTests {
     @Test("persists last health on a healthy->degraded edge")
     func edgePersists() {
         clearState()
-        let service = NotificationService()
+        let service = makeService()
         // healthy is the implicit default (key absent == 0 == healthy).
         service.checkVendorHealth(status(.degraded), toggles: toggles())
         #expect(UserDefaults.standard.integer(forKey: "lastVendorHealth_claude") == VendorHealth.degraded.rawValue)
@@ -44,7 +51,7 @@ struct VendorOutageNotificationTests {
     func noChange() {
         clearState()
         UserDefaults.standard.set(VendorHealth.down.rawValue, forKey: "lastVendorHealth_claude")
-        let service = NotificationService()
+        let service = makeService()
         service.checkVendorHealth(status(.down), toggles: toggles())
         #expect(UserDefaults.standard.integer(forKey: "lastVendorHealth_claude") == VendorHealth.down.rawValue)
     }
@@ -52,7 +59,7 @@ struct VendorOutageNotificationTests {
     @Test("maintenance-only degradation does NOT advance persisted health")
     func maintenanceSuppressed() {
         clearState()
-        let service = NotificationService()
+        let service = makeService()
         service.checkVendorHealth(status(.degraded, maintenance: true), toggles: toggles())
         // Not persisted -> stays at healthy(0), so no phantom 'restored' later.
         #expect(UserDefaults.standard.integer(forKey: "lastVendorHealth_claude") == VendorHealth.healthy.rawValue)
@@ -61,7 +68,7 @@ struct VendorOutageNotificationTests {
     @Test("master off is a no-op")
     func masterOff() {
         clearState()
-        let service = NotificationService()
+        let service = makeService()
         service.checkVendorHealth(status(.down), toggles: toggles(master: false))
         #expect(UserDefaults.standard.integer(forKey: "lastVendorHealth_claude") == VendorHealth.healthy.rawValue)
     }
