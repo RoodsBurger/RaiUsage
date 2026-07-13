@@ -81,6 +81,77 @@ enum MenuBarRenderer {
         let outageActive: Bool
         let outageHealth: VendorHealth
         let nextPollSeconds: Int?
+
+        /// Fixed sample usage data for the settings live preview: every
+        /// availability flag is true so no configured pin ever vanishes, and
+        /// the percentages span the ok/warning/critical zones so risk
+        /// coloring is visible. Only the configuration inputs (the config
+        /// itself, thresholds, smart color, formats) come from the caller -
+        /// the usage numbers are deliberately NOT live so the preview shows
+        /// the full configuration even with no usage data (fresh install,
+        /// auth error).
+        static func sample(
+            config: MenuBarConfig,
+            rotateIndex: Int = 0,
+            thresholds: UsageThresholds = .default,
+            smartColorEnabled: Bool = false,
+            smartColorProfile: SmartColorProfile = .balanced,
+            pacingMargin: Double = 10,
+            resetDisplayFormat: ResetDisplayFormat = .relative,
+            sessionPacingDisplayMode: PacingDisplayMode = .dotDelta,
+            weeklyPacingDisplayMode: PacingDisplayMode = .dotDelta
+        ) -> RenderData {
+            RenderData(
+                menuBarConfig: config,
+                rotateIndex: rotateIndex,
+                hasConfig: true,
+                hasError: false,
+                thresholds: thresholds,
+                smartColorEnabled: smartColorEnabled,
+                smartColorProfile: smartColorProfile,
+                pacingMargin: pacingMargin,
+                fiveHourPct: 42,
+                sevenDayPct: 18,
+                sonnetPct: 61,
+                designPct: 7,
+                fablePct: 84,
+                extraCreditsPct: 28,
+                hasFiveHourBucket: true,
+                hasWeeklyPacing: true,
+                hasSessionPacing: true,
+                hasDesign: true,
+                hasFable: true,
+                hasExtraCredits: true,
+                fiveHourResetDate: nil,
+                sevenDayResetDate: nil,
+                sonnetResetDate: nil,
+                designResetDate: nil,
+                fableResetDate: nil,
+                resetDisplayFormat: resetDisplayFormat,
+                fiveHourReset: "2h13",
+                sevenDayReset: "3d 14h",
+                sonnetReset: "5d 2h",
+                designReset: "1d 8h",
+                fableReset: "6d 1h",
+                fiveHourResetAbsolute: "20:30",
+                sevenDayResetAbsolute: "Thu 19:00",
+                sonnetResetAbsolute: "Sat 09:00",
+                designResetAbsolute: "Wed 07:30",
+                fableResetAbsolute: "May 12 09:00",
+                sessionPacingDelta: 2,
+                sessionPacingZone: .onTrack,
+                weeklyPacingDelta: 12,
+                weeklyPacingZone: .warning,
+                sessionPacingDisplayMode: sessionPacingDisplayMode,
+                weeklyPacingDisplayMode: weeklyPacingDisplayMode,
+                extraCreditsUsedMinorUnits: 14_250,  // $142.50
+                extraCreditsLimitMinorUnits: 50_000, // $500
+                extraCreditsCurrency: "USD",
+                outageActive: false,
+                outageHealth: .healthy,
+                nextPollSeconds: nil
+            )
+        }
     }
 
     private static var cachedImage: NSImage?
@@ -490,15 +561,17 @@ enum MenuBarRenderer {
         switch pin.value {
         case .dollars:
             if worstCase {
-                // Ceiling: the pool's own formatted monthly limit, floored at
-                // "$8,888" (comma + four digits) so the slot covers realistic
-                // balances even when the limit is small or unset.
+                // Ceiling: the pool's monthly limit formatted with forced
+                // fraction digits, floored at "$8,888.88" - cents included on
+                // both candidates because non-whole balances always render
+                // with 2 decimals, wider than any decimals-free string.
                 let limitText = CurrencyFormatter.formatMinorUnits(
                     data.extraCreditsLimitMinorUnits,
                     currencyCode: data.extraCreditsCurrency,
-                    locale: Locale(identifier: "en_US")
+                    locale: Locale(identifier: "en_US"),
+                    forceFractionDigits: true
                 )
-                text = widest([limitText, "$8,888"], attributes: valueAttributes)
+                text = widest([limitText, "$8,888.88"], attributes: valueAttributes)
             } else {
                 text = CurrencyFormatter.formatMinorUnits(
                     data.extraCreditsUsedMinorUnits,

@@ -10,7 +10,6 @@ import SwiftUI
 /// bindings via `ForEach($...)` stay AttributeGraph-safe.
 struct MenuBarSectionView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
-    @EnvironmentObject private var usageStore: UsageStore
 
     /// Local buffer for the separator field only - it needs length clamping
     /// (1-2 chars) before writing back, which a direct binding can't express.
@@ -93,60 +92,20 @@ struct MenuBarSectionView: View {
         }
     }
 
-    /// Mirrors StatusBarController's real `RenderData` construction so the
-    /// preview matches production pixel-for-pixel, except `hasConfig`/
-    /// `hasError` are forced so the preview always shows the configured pins
-    /// (never the fallback logo) regardless of connection state.
+    /// Sample-driven (never live UsageStore data) so every configured pin is
+    /// always visible - live data would silently drop pins whenever a bucket
+    /// is missing (fresh install, auth error), misleading exactly when users
+    /// first configure the app. Only the settings being edited flow through.
     private var previewData: MenuBarRenderer.RenderData {
-        MenuBarRenderer.RenderData(
-            menuBarConfig: settingsStore.display.menuBarConfig,
-            rotateIndex: 0,
-            hasConfig: true,
-            hasError: false,
+        .sample(
+            config: settingsStore.display.menuBarConfig,
             thresholds: settingsStore.thresholds,
             smartColorEnabled: settingsStore.smartColorEnabled,
             smartColorProfile: settingsStore.smartColorProfile,
             pacingMargin: Double(settingsStore.pacingMargin),
-            fiveHourPct: usageStore.fiveHourPct,
-            sevenDayPct: usageStore.sevenDayPct,
-            sonnetPct: usageStore.sonnetPct,
-            designPct: usageStore.designPct,
-            fablePct: usageStore.fablePct,
-            extraCreditsPct: usageStore.extraCreditsPct,
-            hasFiveHourBucket: usageStore.lastUsage?.fiveHour != nil,
-            hasWeeklyPacing: usageStore.pacingResult != nil,
-            hasSessionPacing: usageStore.fiveHourPacing != nil,
-            hasDesign: usageStore.hasDesign,
-            hasFable: usageStore.hasFable,
-            hasExtraCredits: usageStore.hasExtraCredits,
-            fiveHourResetDate: usageStore.lastUsage?.fiveHour?.resetsAtDate,
-            sevenDayResetDate: usageStore.lastUsage?.sevenDay?.resetsAtDate,
-            sonnetResetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
-            designResetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
-            fableResetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
             resetDisplayFormat: settingsStore.resetDisplayFormat,
-            fiveHourReset: usageStore.fiveHourReset,
-            sevenDayReset: usageStore.sevenDayReset,
-            sonnetReset: usageStore.sonnetReset,
-            designReset: usageStore.designReset,
-            fableReset: usageStore.fableReset,
-            fiveHourResetAbsolute: usageStore.fiveHourResetAbsolute,
-            sevenDayResetAbsolute: usageStore.sevenDayResetAbsolute,
-            sonnetResetAbsolute: usageStore.sonnetResetAbsolute,
-            designResetAbsolute: usageStore.designResetAbsolute,
-            fableResetAbsolute: usageStore.fableResetAbsolute,
-            sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
-            sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
-            weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
-            weeklyPacingZone: usageStore.pacingResult?.zone ?? .onTrack,
             sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
-            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
-            extraCreditsUsedMinorUnits: usageStore.extraUsage?.usedCredits ?? 0,
-            extraCreditsLimitMinorUnits: usageStore.extraUsage?.monthlyLimit ?? 0,
-            extraCreditsCurrency: usageStore.extraUsage?.currency ?? "USD",
-            outageActive: false,
-            outageHealth: .healthy,
-            nextPollSeconds: nil
+            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode
         )
     }
 

@@ -458,6 +458,19 @@ struct MenuBarBuildLineTests {
         )
         #expect(MenuBarRenderer.buildLine(data: data).string == "30% 1h39")
     }
+
+    @Test("sample preview data renders every pinnable metric when all are pinned")
+    func samplePreviewRendersEveryPin() {
+        // The settings live preview is sample-driven so pins never vanish on a
+        // machine with no usage data. Every availability flag in the sample
+        // must be true: with all pinnable metrics pinned, the all-mode line
+        // has to contain every pin (separator count == pins - 1).
+        let pins = MetricID.menuBarPinnable.map { PinnedMetricConfig(id: $0, prefix: .none) }
+        let config = MenuBarConfig(pinned: pins, displayMode: .all, separator: "|")
+        let line = MenuBarRenderer.buildLine(data: .sample(config: config))
+        let separators = line.string.filter { $0 == "|" }.count
+        #expect(separators == pins.count - 1)
+    }
 }
 
 @Suite("MenuBarRenderer.fixedWidthMeasurement")
@@ -514,8 +527,14 @@ struct MenuBarFixedWidthTests {
     @Test("dollars pin: measurement is identical across live values and covers each rendered width")
     func dollarsWorstCaseStableAcrossLiveValues() {
         let pin = PinnedMetricConfig(id: .extraCredits, prefix: .none, value: .dollars)
-        // Whole-dollar amounts within the ceiling (limit $5,000 / "$8,888" floor).
-        let liveMinorUnits: [Double] = [0, 4200, 130_000, 420_000] // $0, $42, $1,300, $4,200
+        // Whole-dollar AND cent-bearing amounts within the ceiling (limit
+        // $5,000 / "$8,888.88" floor). Cents matter: CurrencyFormatter keeps
+        // 2 fraction digits for non-whole balances, so "$999.99" renders
+        // wider than a decimals-free "$8,888" would.
+        let liveMinorUnits: [Double] = [
+            0, 4200, 130_000, 420_000,   // $0, $42, $1,300, $4,200
+            130_055, 99_999,             // $1,300.55, $999.99
+        ]
         var measurements = Set<CGFloat>()
         for used in liveMinorUnits {
             let data = makeRenderData(
