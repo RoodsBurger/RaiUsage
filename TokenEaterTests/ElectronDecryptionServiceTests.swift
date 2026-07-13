@@ -4,9 +4,20 @@ import Foundation
 @Suite("ElectronDecryptionService")
 struct ElectronDecryptionServiceTests {
 
+    /// Isolated key-cache path so tests never read or delete the user's real cached key.
+    private func tempKeyFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("decryption.key")
+    }
+
+    private func makeSUT() -> ElectronDecryptionService {
+        ElectronDecryptionService(keyFileURL: tempKeyFileURL())
+    }
+
     @Test("rejects data without v10 prefix")
     func rejectsWithoutV10Prefix() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let key = ElectronDecryptionService.deriveKey(from: "testpassword")
         sut.setDerivedKeyForTesting(key)
 
@@ -23,7 +34,7 @@ struct ElectronDecryptionServiceTests {
 
     @Test("rejects empty base64")
     func rejectsEmptyBase64() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let key = ElectronDecryptionService.deriveKey(from: "testpassword")
         sut.setDerivedKeyForTesting(key)
 
@@ -34,7 +45,7 @@ struct ElectronDecryptionServiceTests {
 
     @Test("rejects invalid base64")
     func rejectsInvalidBase64() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let key = ElectronDecryptionService.deriveKey(from: "testpassword")
         sut.setDerivedKeyForTesting(key)
 
@@ -45,14 +56,14 @@ struct ElectronDecryptionServiceTests {
 
     @Test("hasEncryptionKey is false after clearCachedKey")
     func hasEncryptionKeyFalseAfterClear() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         sut.clearCachedKey()
         #expect(sut.hasEncryptionKey == false)
     }
 
     @Test("clearCachedKey removes the key")
     func clearCachedKeyRemovesKey() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let key = ElectronDecryptionService.deriveKey(from: "testpassword")
         sut.setDerivedKeyForTesting(key)
         #expect(sut.hasEncryptionKey == true)
@@ -83,7 +94,7 @@ struct ElectronDecryptionServiceTests {
 
     @Test("full encrypt-then-decrypt round trip")
     func encryptThenDecryptRoundTrip() throws {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let password = "test-electron-password"
         let key = ElectronDecryptionService.deriveKey(from: password)
         sut.setDerivedKeyForTesting(key)
@@ -98,7 +109,7 @@ struct ElectronDecryptionServiceTests {
 
     @Test("round trip with empty plaintext")
     func roundTripEmptyPlaintext() throws {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         let key = ElectronDecryptionService.deriveKey(from: "pw")
         sut.setDerivedKeyForTesting(key)
 
@@ -110,7 +121,7 @@ struct ElectronDecryptionServiceTests {
 
     @Test("decrypt fails without encryption key set")
     func decryptFailsWithoutKey() {
-        let sut = ElectronDecryptionService()
+        let sut = makeSUT()
         // v10 prefix + 16 bytes of fake ciphertext
         var data = Data([0x76, 0x31, 0x30])
         data.append(Data(repeating: 0xAA, count: 16))
@@ -160,19 +171,6 @@ struct ElectronDecryptionServiceTests {
 
         let loaded = ElectronDecryptionService.loadKeyFromFile(at: keyFile)
         #expect(loaded == nil)
-    }
-
-    @Test("trySilentRebootstrap returns a Bool and updates hasEncryptionKey accordingly")
-    func trySilentRebootstrapReturnsConsistentState() {
-        let sut = ElectronDecryptionService()
-        sut.clearCachedKey()
-        #expect(sut.hasEncryptionKey == false)
-
-        let result = sut.trySilentRebootstrap()
-        // Result depends on whether "Claude Safe Storage" keychain item exists.
-        // On CI: false (no Electron keychain). On dev machine with Claude: true.
-        // Either way, hasEncryptionKey must match the return value.
-        #expect(sut.hasEncryptionKey == result)
     }
 
     @Test("file-based key cache: returns nil when file too short")
