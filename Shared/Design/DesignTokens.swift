@@ -93,6 +93,7 @@ enum DS {
         static let cardLg: CGFloat = 12
         static let modal:  CGFloat = 16
         static let pill:   CGFloat = 100
+        static let tile:   CGFloat = 10
     }
 
     // MARK: - Layout
@@ -107,6 +108,17 @@ enum DS {
         /// reset onboarding from Settings). Designed to fit a 2x2 cards
         /// grid next to a left-side hero column.
         static let onboardingWindow = CGSize(width: 1080, height: 675)
+    }
+
+    // MARK: - Native design constants (stage-2 language)
+
+    /// Standard inset spacing for panels and cards.
+    static let inset: CGFloat = 14
+
+    /// Icon disc sizes for various contexts.
+    enum IconDisc {
+        static let standard: CGFloat = 32
+        static let hero: CGFloat = 72
     }
 
     // MARK: - Shadows
