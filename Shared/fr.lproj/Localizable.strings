@@ -490,38 +490,6 @@
 "settings.smartColor.profile.balanced.hint" = "Réglage par défaut.";
 "settings.smartColor.profile.vigilant.hint" = "Lit les premiers signaux comme du risque.";
 
-/* Update */
-"update.check" = "Vérifier les mises à jour";
-"update.uptodate" = "À jour";
-"update.available.title" = "Mise à jour disponible";
-"update.available.subtitle" = "Une nouvelle version de TokenEater est prête";
-"update.available.badge %@" = "v%@ disponible";
-"update.download" = "Télécharger";
-"update.later" = "Plus tard";
-"update.downloading" = "Téléchargement en cours...";
-"update.downloading.hint" = "Ça ne prendra qu'un instant";
-"update.ready.title" = "Prêt à installer";
-"update.ready.subtitle" = "macOS demandera votre mot de passe pour installer la mise à jour.";
-"update.install" = "Installer et relancer";
-"update.install.hint" = "TokenEater redémarrera automatiquement";
-"update.installing" = "Installation en cours...";
-"update.installing.hint" = "Entrez votre mot de passe quand macOS le demande";
-"update.version.current" = "Actuel";
-"update.version.new" = "Nouveau";
-"update.error.signatureInvalid" = "Échec de la vérification de signature. Installation annulée.";
-"update.error.signatureMissing" = "Signature manquante pour la mise à jour. Installation annulée.";
-"update.error.sizeMismatch" = "Taille de la mise à jour incorrecte. Installation annulée.";
-"update.error.verifyReadFailed" = "Impossible de lire les fichiers de mise à jour pour la vérification. Installation annulée.";
-"update.notes.title" = "Nouveautés";
-"update.notes.loading" = "Chargement des notes de version…";
-"update.notes.unavailable" = "Notes de version indisponibles";
-"update.notes.viewOnGitHub" = "Voir sur GitHub";
-
-/* Brew Migration */
-"update.brew.detected" = "Installé via Homebrew";
-"update.brew.hint" = "Les mises à jour sont désormais gérées directement par TokenEater. Lancez cette commande pour nettoyer l'ancienne installation brew :";
-"update.brew.dismiss" = "Ignorer";
-
 /* Session Overlay */
 "settings.overlay.title" = "Overlay de session";
 "settings.overlay.toggle" = "Afficher l'overlay de session";
@@ -720,7 +688,6 @@
 "contextmenu.watchers.enable" = "Activer les Agent Watchers";
 "contextmenu.watchers.disable" = "Désactiver les Agent Watchers";
 "contextmenu.settings" = "Réglages";
-"contextmenu.updates" = "Vérifier les mises à jour...";
 
 "pacing.session.label.short" = "Session";
 "pacing.weekly.label.short" = "Hebdo";

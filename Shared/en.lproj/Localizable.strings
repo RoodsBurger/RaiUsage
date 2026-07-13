@@ -490,38 +490,6 @@
 "settings.smartColor.profile.balanced.hint" = "Default tuning.";
 "settings.smartColor.profile.vigilant.hint" = "Reads early signals as risk.";
 
-/* Update */
-"update.check" = "Check for updates";
-"update.uptodate" = "Up to date";
-"update.available.title" = "Update available";
-"update.available.subtitle" = "A new version of TokenEater is ready";
-"update.available.badge %@" = "v%@ available";
-"update.download" = "Download";
-"update.later" = "Later";
-"update.downloading" = "Downloading update...";
-"update.downloading.hint" = "This will only take a moment";
-"update.ready.title" = "Ready to install";
-"update.ready.subtitle" = "macOS will ask for your password to install the update.";
-"update.install" = "Install & relaunch";
-"update.install.hint" = "TokenEater will restart automatically";
-"update.installing" = "Installing...";
-"update.installing.hint" = "Enter your password when macOS asks";
-"update.version.current" = "Current";
-"update.version.new" = "New";
-"update.error.signatureInvalid" = "Signature verification failed. Aborting install.";
-"update.error.signatureMissing" = "Update is missing a signature. Aborting install.";
-"update.error.sizeMismatch" = "Update file size does not match the appcast. Aborting install.";
-"update.error.verifyReadFailed" = "Could not read update files for verification. Aborting install.";
-"update.notes.title" = "What's new";
-"update.notes.loading" = "Fetching release notes…";
-"update.notes.unavailable" = "Release notes unavailable";
-"update.notes.viewOnGitHub" = "View on GitHub";
-
-/* Brew Migration */
-"update.brew.detected" = "Installed via Homebrew";
-"update.brew.hint" = "Updates are now handled directly by TokenEater. Run this command to clean up the old brew install:";
-"update.brew.dismiss" = "Dismiss";
-
 /* Session Overlay */
 "settings.overlay.title" = "Session Overlay";
 "settings.overlay.toggle" = "Show session overlay";
@@ -720,7 +688,6 @@
 "contextmenu.watchers.enable" = "Enable Agent Watchers";
 "contextmenu.watchers.disable" = "Disable Agent Watchers";
 "contextmenu.settings" = "Settings";
-"contextmenu.updates" = "Check for updates...";
 
 "pacing.session.label.short" = "Session";
 "pacing.weekly.label.short" = "Weekly";
