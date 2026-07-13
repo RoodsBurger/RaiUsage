@@ -39,30 +39,19 @@ final class SettingsStore: ObservableObject {
     var criticalThreshold: Int {
         get { display.criticalThreshold } set { display.criticalThreshold = newValue }
     }
-    /// When true, every gauge/pacing color in the menu bar renders as the
-    /// system label color instead of its semantic `RiskZone` color.
-    var menuBarMonochrome: Bool {
-        get { display.menuBarMonochrome } set { display.menuBarMonochrome = newValue }
-    }
     /// The resolved warning/critical ladder handed to `RiskZone.forPercent(_:thresholds:)`.
     var thresholds: UsageThresholds { display.thresholds }
-    var menuBarStyle: MenuBarStyle {
-        get { display.menuBarStyle } set { display.menuBarStyle = newValue }
-    }
-    var pacingShape: PacingShape {
-        get { display.pacingShape } set { display.pacingShape = newValue }
-    }
     var sessionPacingDisplayMode: PacingDisplayMode {
         get { display.sessionPacingDisplayMode } set { display.sessionPacingDisplayMode = newValue }
     }
     var weeklyPacingDisplayMode: PacingDisplayMode {
         get { display.weeklyPacingDisplayMode } set { display.weeklyPacingDisplayMode = newValue }
     }
-    var resetTextColorHex: String {
-        get { display.resetTextColorHex } set { display.resetTextColorHex = newValue }
-    }
-    var sessionPeriodColorHex: String {
-        get { display.sessionPeriodColorHex } set { display.sessionPeriodColorHex = newValue }
+    /// Full menu-bar rendering configuration. Views should prefer
+    /// `settings.display.$menuBarConfig` for bindings; this forward is for
+    /// non-binding call sites (StatusBarController, context menu, previews).
+    var menuBarConfig: MenuBarConfig {
+        get { display.menuBarConfig } set { display.menuBarConfig = newValue }
     }
     var displaySonnet: Bool {
         get { display.displaySonnet } set { display.displaySonnet = newValue }

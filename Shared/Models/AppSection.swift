@@ -32,14 +32,14 @@ enum AppSpace: String, CaseIterable {
 enum SettingsSection: String, CaseIterable {
     case general
     case pacing
-    case display
+    case menuBar
     case popover
     case notifications
 
     var labelKey: String {
         switch self {
         case .general:       "sidebar.general"
-        case .display:       "sidebar.display"
+        case .menuBar:       "sidebar.display"
         case .pacing:        "sidebar.pacing"
         case .popover:       "sidebar.popover"
         case .notifications: "sidebar.notifications"
@@ -51,7 +51,7 @@ enum SettingsSection: String, CaseIterable {
     var iconName: String {
         switch self {
         case .general:       "slider.horizontal.3"
-        case .display:       "menubar.rectangle"
+        case .menuBar:       "menubar.rectangle"
         case .pacing:        "speedometer"
         case .popover:       "menubar.dock.rectangle"
         case .notifications: "bell.fill"

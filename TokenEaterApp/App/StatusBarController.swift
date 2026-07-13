@@ -13,6 +13,10 @@ final class StatusBarController: NSObject {
     private var spaceChangeObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     private var countdownCancellable: AnyCancellable?
+    private var rotateCancellable: AnyCancellable?
+    /// Index into the visible pins for `.rotate` display mode. Renderer wraps
+    /// it modulo the visible count, so any monotonically-increasing value works.
+    private var rotateIndex = 0
 
     private let usageStore: UsageStore
     private let settingsStore: SettingsStore
@@ -106,10 +110,21 @@ final class StatusBarController: NSObject {
 
         Timer.publish(every: 60, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in
-                guard let self,
-                      self.settingsStore.pinnedMetrics.contains(.sessionReset) else { return }
+                guard let self else { return }
+                let needsCountdown = self.settingsStore.pinnedMetrics.contains(.sessionReset)
+                    || self.settingsStore.display.menuBarConfig.pinned.contains(where: { $0.showCountdown })
+                guard needsCountdown else { return }
                 self.usageStore.refreshResetCountdown()
             }
+            .store(in: &cancellables)
+
+        // Rotate timer: only runs while displayMode == .rotate, restarts
+        // whenever the mode or cadence changes so a cadence edit takes effect
+        // immediately instead of waiting out the old interval.
+        settingsStore.display.$menuBarConfig
+            .map { ($0.displayMode, $0.rotateSeconds) }
+            .removeDuplicates(by: ==)
+            .sink { [weak self] _ in self?.updateRotateTimer() }
             .store(in: &cancellables)
 
         settingsStore.pacing.$margin
@@ -279,57 +294,78 @@ final class StatusBarController: NSObject {
 
     private func updateMenuBarIcon() {
         let image = MenuBarRenderer.render(MenuBarRenderer.RenderData(
-            pinnedMetrics: settingsStore.pinnedMetrics,
-            displaySonnet: settingsStore.displaySonnet,
-            fiveHourPct: usageStore.fiveHourPct,
-            sevenDayPct: usageStore.sevenDayPct,
-            sonnetPct: usageStore.sonnetPct,
-            weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
-            weeklyPacingZone: usageStore.pacingResult?.zone ?? .onTrack,
-            hasWeeklyPacing: usageStore.pacingResult != nil,
-            sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
-            sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
-            hasSessionPacing: usageStore.fiveHourPacing != nil,
-            sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
-            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
+            menuBarConfig: settingsStore.display.menuBarConfig,
+            rotateIndex: rotateIndex,
             hasConfig: usageStore.hasConfig,
             hasError: usageStore.hasError,
             thresholds: settingsStore.thresholds,
-            menuBarMonochrome: settingsStore.menuBarMonochrome,
-            fiveHourReset: usageStore.fiveHourReset,
-            fiveHourResetAbsolute: usageStore.fiveHourResetAbsolute,
+            smartColorEnabled: settingsStore.smartColorEnabled,
+            smartColorProfile: settingsStore.smartColorProfile,
+            pacingMargin: Double(settingsStore.pacingMargin),
+            fiveHourPct: usageStore.fiveHourPct,
+            sevenDayPct: usageStore.sevenDayPct,
+            sonnetPct: usageStore.sonnetPct,
+            designPct: usageStore.designPct,
+            fablePct: usageStore.fablePct,
+            extraCreditsPct: usageStore.extraCreditsPct,
+            hasFiveHourBucket: usageStore.lastUsage?.fiveHour != nil,
+            hasWeeklyPacing: usageStore.pacingResult != nil,
+            hasSessionPacing: usageStore.fiveHourPacing != nil,
+            hasDesign: usageStore.hasDesign,
+            hasFable: usageStore.hasFable,
+            hasExtraCredits: usageStore.hasExtraCredits,
             fiveHourResetDate: usageStore.lastUsage?.fiveHour?.resetsAtDate,
             sevenDayResetDate: usageStore.lastUsage?.sevenDay?.resetsAtDate,
             sonnetResetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
             designResetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
-            hasFiveHourBucket: usageStore.lastUsage?.fiveHour != nil,
-            resetDisplayFormat: settingsStore.resetDisplayFormat,
-            resetTextColorHex: settingsStore.resetTextColorHex,
-            sessionPeriodColorHex: settingsStore.sessionPeriodColorHex,
-            smartResetColor: settingsStore.smartColorEnabled,
-            smartColorProfile: settingsStore.smartColorProfile,
-            pacingMargin: Double(settingsStore.pacingMargin),
-            menuBarStyle: settingsStore.menuBarStyle,
-            pacingShape: settingsStore.pacingShape,
-            designPct: usageStore.designPct,
-            hasDesign: usageStore.hasDesign,
-            fablePct: usageStore.fablePct,
-            hasFable: usageStore.hasFable,
             fableResetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
+            fiveHourReset: usageStore.fiveHourReset,
+            sevenDayReset: usageStore.sevenDayReset,
+            sonnetReset: usageStore.sonnetReset,
+            designReset: usageStore.designReset,
+            fableReset: usageStore.fableReset,
+            sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
+            sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
+            weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
+            weeklyPacingZone: usageStore.pacingResult?.zone ?? .onTrack,
+            sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
+            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
+            extraCreditsUsedMinorUnits: usageStore.extraUsage?.usedCredits ?? 0,
+            extraCreditsCurrency: usageStore.extraUsage?.currency ?? "USD",
             outageActive: settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded,
             outageHealth: vendorStatusStore.worstHealth,
-            nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) },
-            extraCreditsPct: usageStore.extraCreditsPct,
-            hasExtraCredits: usageStore.hasExtraCredits
+            nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) }
         ))
         statusItem.button?.image = image
+    }
+
+    /// Starts/stops the rotate timer to match `displayMode`/`rotateSeconds`.
+    /// Always rebuilt (never just left running) so a cadence edit takes
+    /// effect on the next tick instead of finishing out the old interval.
+    private func updateRotateTimer() {
+        rotateCancellable?.cancel()
+        rotateCancellable = nil
+
+        let config = settingsStore.display.menuBarConfig
+        guard config.displayMode == .rotate else { return }
+
+        let interval = TimeInterval(max(1, config.rotateSeconds))
+        rotateCancellable = Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.rotateIndex += 1
+                self.updateMenuBarIcon()
+            }
     }
 
     /// Run a 1-second redraw ONLY while an outage badge is visible, so the
     /// menu-bar countdown ticks without waking the CPU every second otherwise.
     private func updateCountdownTimer() {
         let badgeCountdown = settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded
-        let pinCountdown = settingsStore.pinnedMetrics.contains(.serviceStatus) && vendorStatusStore.worstHealth == .down
+        let pinCountdown = (settingsStore.pinnedMetrics.contains(.serviceStatus)
+            || settingsStore.display.menuBarConfig.pinned.contains(where: { $0.id == .serviceStatus }))
+            && vendorStatusStore.worstHealth == .down
         let active = badgeCountdown || pinCountdown
         if active, countdownCancellable == nil {
             countdownCancellable = Timer.publish(every: 1, on: .main, in: .common)

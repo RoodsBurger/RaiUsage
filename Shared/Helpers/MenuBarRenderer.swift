@@ -1,57 +1,73 @@
 import AppKit
 
 enum MenuBarRenderer {
+    /// Everything the renderer needs to draw one frame of the status item.
+    /// Pure value type - no store references - so `buildLine(data:)` and
+    /// `render(_:)` are unit-testable without touching AppKit's live status
+    /// bar or any `@MainActor` store.
     struct RenderData: Equatable {
-        let pinnedMetrics: Set<MetricID>
-        let displaySonnet: Bool
-        let fiveHourPct: Int
-        let sevenDayPct: Int
-        let sonnetPct: Int
-        let weeklyPacingDelta: Int
-        let weeklyPacingZone: PacingZone
-        let hasWeeklyPacing: Bool
-        let sessionPacingDelta: Int
-        let sessionPacingZone: PacingZone
-        let hasSessionPacing: Bool
-        let sessionPacingDisplayMode: PacingDisplayMode
-        let weeklyPacingDisplayMode: PacingDisplayMode
+        let menuBarConfig: MenuBarConfig
+        /// Index into the visible-pins list for `.rotate` display mode.
+        /// Wrapped modulo the visible count, so any non-negative value works.
+        let rotateIndex: Int
+
         let hasConfig: Bool
         let hasError: Bool
         let thresholds: UsageThresholds
-        let menuBarMonochrome: Bool
-        let fiveHourReset: String
-        let fiveHourResetAbsolute: String
+        let smartColorEnabled: Bool
+        let smartColorProfile: SmartColorProfile
+        let pacingMargin: Double
+
+        let fiveHourPct: Int
+        let sevenDayPct: Int
+        let sonnetPct: Int
+        let designPct: Int
+        let fablePct: Int
+        let extraCreditsPct: Int
+
+        /// True once the API has returned a `five_hour` bucket at all -
+        /// independent of whether `resetsAt` is populated, since Anthropic can
+        /// return the bucket with `utilization: 0` and no reset date between
+        /// two 5h windows. Keeps session-scoped pins visible with a neutral
+        /// placeholder instead of vanishing during a lull.
+        let hasFiveHourBucket: Bool
+        let hasWeeklyPacing: Bool
+        let hasSessionPacing: Bool
+        let hasDesign: Bool
+        let hasFable: Bool
+        let hasExtraCredits: Bool
+
         let fiveHourResetDate: Date?
         let sevenDayResetDate: Date?
         let sonnetResetDate: Date?
         let designResetDate: Date?
-        /// True when the API returned a `five_hour` bucket at all. Independent
-        /// from whether `resets_at` was populated - Anthropic can return the
-        /// bucket with `utilization: 0` and no `resets_at` when you're between
-        /// two 5h windows. Used to keep session pins visible (with a placeholder
-        /// value) instead of making them disappear whenever there's a lull.
-        let hasFiveHourBucket: Bool
-        let resetDisplayFormat: ResetDisplayFormat
-        let resetTextColorHex: String
-        let sessionPeriodColorHex: String
-        let smartResetColor: Bool
-        let smartColorProfile: SmartColorProfile
-        let pacingMargin: Double
-        let menuBarStyle: MenuBarStyle
-        let pacingShape: PacingShape
-        let designPct: Int
-        let hasDesign: Bool
-        let fablePct: Int
-        let hasFable: Bool
         let fableResetDate: Date?
-        // Outage badge (Service Status). Set by StatusBarController from
-        // VendorStatusStore; kept `let` like every other RenderData field so
-        // the Equatable render cache stays correct.
+
+        /// Relative countdown text ("1h39", ...), appended after the value
+        /// when a pin's `showCountdown` is on.
+        let fiveHourReset: String
+        let sevenDayReset: String
+        let sonnetReset: String
+        let designReset: String
+        let fableReset: String
+
+        let sessionPacingDelta: Int
+        let sessionPacingZone: PacingZone
+        let weeklyPacingDelta: Int
+        let weeklyPacingZone: PacingZone
+        let sessionPacingDisplayMode: PacingDisplayMode
+        let weeklyPacingDisplayMode: PacingDisplayMode
+
+        /// Extra Credits pool usage in the currency's minor unit (e.g. cents),
+        /// formatted through `CurrencyFormatter` when a pin's value style is
+        /// `.dollars`.
+        let extraCreditsUsedMinorUnits: Double
+        let extraCreditsCurrency: String
+
+        // Outage badge - set by StatusBarController from VendorStatusStore.
         let outageActive: Bool
         let outageHealth: VendorHealth
         let nextPollSeconds: Int?
-        let extraCreditsPct: Int
-        let hasExtraCredits: Bool
     }
 
     private static var cachedImage: NSImage?
@@ -82,19 +98,6 @@ enum MenuBarRenderer {
     }
 
     // MARK: - Color helpers
-
-    private static func colorForPct(_ pct: Int, resetDate: Date?, windowDuration: TimeInterval, data: RenderData) -> NSColor {
-        gaugeColor(
-            pct: pct,
-            resetDate: resetDate,
-            windowDuration: windowDuration,
-            monochrome: data.menuBarMonochrome,
-            smartEnabled: data.smartResetColor,
-            thresholds: data.thresholds,
-            pacingMargin: data.pacingMargin,
-            smartColorProfile: data.smartColorProfile
-        )
-    }
 
     /// Resolves the gauge colour for a flat percentage.
     ///
@@ -130,14 +133,50 @@ enum MenuBarRenderer {
         )
     }
 
-    private static func resetDate(for metric: MetricID, data: RenderData) -> Date? {
-        switch metric {
-        case .fiveHour:    return data.fiveHourResetDate
-        case .sevenDay:    return data.sevenDayResetDate
-        case .sonnet:      return data.sonnetResetDate
-        case .design:      return data.designResetDate
-        case .fable:       return data.fableResetDate
-        default:           return nil
+    private static func metricColor(pct: Int, resetDate: Date?, windowDuration: TimeInterval, data: RenderData) -> NSColor {
+        gaugeColor(
+            pct: pct,
+            resetDate: resetDate,
+            windowDuration: windowDuration,
+            monochrome: data.menuBarConfig.colorMode == .monochrome,
+            smartEnabled: data.smartColorEnabled,
+            thresholds: data.thresholds,
+            pacingMargin: data.pacingMargin,
+            smartColorProfile: data.smartColorProfile
+        )
+    }
+
+    private static func pacingColor(_ zone: PacingZone, hasData: Bool, data: RenderData) -> NSColor {
+        if data.menuBarConfig.colorMode == .monochrome { return .labelColor }
+        return hasData ? zone.semanticNSColor : .tertiaryLabelColor
+    }
+
+    /// 0/1/2 risk rank for a metric's own zone, independent of `colorMode` -
+    /// `highestRisk` selection is driven by real usage risk even when the
+    /// display renders monochrome.
+    private static func zoneRank(pct: Int, resetDate: Date?, windowDuration: TimeInterval, data: RenderData) -> Int {
+        let mode = GaugeColorResolver.mode(smartColorEnabled: data.smartColorEnabled, windowDuration: windowDuration)
+        let zone = GaugeColorResolver.zone(
+            mode: mode,
+            utilization: pct,
+            resetDate: resetDate,
+            windowDuration: windowDuration,
+            thresholds: data.thresholds,
+            pacingMargin: data.pacingMargin,
+            profile: data.smartColorProfile
+        )
+        switch zone {
+        case .ok: return 0
+        case .warning: return 1
+        case .critical: return 2
+        }
+    }
+
+    private static func pacingRank(_ zone: PacingZone) -> Int {
+        switch zone {
+        case .chill, .onTrack: return 0
+        case .warning: return 1
+        case .hot: return 2
         }
     }
 
@@ -149,61 +188,11 @@ enum MenuBarRenderer {
         }
     }
 
-    private static func colorForZone(_ zone: PacingZone, data: RenderData) -> NSColor {
-        if data.menuBarMonochrome { return .labelColor }
-        return zone.semanticNSColor
-    }
-
-    /// Default colour for the period label ("5h" / "7d") when the user has not
-    /// picked a custom hex. Secondary (~55%) rather than tertiary (~26%) so the
-    /// label stays legible on a *light* menu bar (the old tertiary grey was
-    /// nearly invisible there) while still ranking below the bold, colour-coded
-    /// value. The secondary default is @pulkitxm's fix from #197; #201 builds on
-    /// it so a custom hex is also honored in monochrome (#196).
-    static let defaultPeriodLabelColor: NSColor = .secondaryLabelColor
-
-    /// Resolves the period-label colour. The user's custom hex wins in BOTH
-    /// modes, including monochrome, so a monochrome user on a light menu bar can
-    /// still tune the "5h" / "7d" label colour (#196). With no custom hex it
-    /// falls back to the legible `defaultPeriodLabelColor`. Kept internal and
-    /// `RenderData`-free so it is unit-testable in isolation.
-    static func periodLabelColor(hex: String) -> NSColor {
-        MenuBarTextColorResolver.resolve(hex: hex, fallback: defaultPeriodLabelColor)
-    }
-
-    private static func periodColor(_ data: RenderData) -> NSColor {
-        periodLabelColor(hex: data.sessionPeriodColorHex)
-    }
-
-    /// Reset countdown text color. Priority:
-    ///   1. monochrome: always system label;
-    ///   2. smart mode: risk-based (`RiskZone`) so it visually agrees with
-    ///      the session ring;
-    ///   3. static: user-picked hex, falling back to the system label.
-    private static func resetValueColor(_ data: RenderData) -> NSColor {
-        if data.menuBarMonochrome { return NSColor.labelColor }
-        if data.smartResetColor {
-            return GaugeColorResolver.nsColor(
-                mode: .smart,
-                utilization: data.fiveHourPct,
-                resetDate: data.fiveHourResetDate,
-                windowDuration: 5 * 3600,
-                thresholds: data.thresholds,
-                pacingMargin: data.pacingMargin,
-                profile: data.smartColorProfile
-            )
-        }
-        return MenuBarTextColorResolver.resolve(
-            hex: data.resetTextColorHex,
-            fallback: .labelColor
-        )
-    }
-
     // MARK: - Outage badge
 
     /// Composite an outage glyph + mm:ss countdown ahead of the normal content.
     /// When usage data isn't usable (no config / usage error), show the badge
-    /// alone — avoids compositing a template logo into a coloured image.
+    /// alone - avoids compositing a template logo into a coloured image.
     private static func renderWithOutageBadge(_ data: RenderData) -> NSImage {
         let badge = renderOutageBadgeImage(data)
         let hasMetrics = data.hasConfig && !data.hasError
@@ -262,517 +251,352 @@ enum MenuBarRenderer {
         return img
     }
 
-    // MARK: - Rendering
+    // MARK: - Pin visibility
 
-    private static func renderPinnedMetrics(_ data: RenderData) -> NSImage {
-        // Minimal uses an entirely different drawing path (pills), so hand
-        // off early instead of trying to fit it into the classic/mono
-        // NSAttributedString pipeline.
-        if data.menuBarStyle == .badge {
-            return renderBadgePills(data)
-        }
-
-        let height: CGFloat = 22
-        let str = NSMutableAttributedString()
-
-        let sepAttrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 10, weight: .regular, style: data.menuBarStyle),
-            .foregroundColor: NSColor.tertiaryLabelColor,
-        ]
-        let separator: String = {
-            switch data.menuBarStyle {
-            case .classic: return "  "
-            case .mono:    return " "
-            case .badge: return " \u{00B7} "  // middle dot with spaces
-            }
-        }()
-
-        let ordered: [MetricID] = [
-            .serviceStatus, .sessionReset, .fiveHour, .sessionPacing, .sevenDay, .weeklyPacing, .sonnet, .design, .fable, .extraCredits
-        ].filter {
-            guard data.pinnedMetrics.contains($0) else { return false }
-            // Sonnet / Design / Extra Credits visibility in the menu bar is
-            // purely driven by pinnedMetrics. Popover visibility has its own
-            // toggles.
-            if $0 == .design && !data.hasDesign { return false }
-            if $0 == .fable && !data.hasFable { return false }
-            switch $0 {
-            // Session-scoped pins stay visible as long as the API returned a
-            // five_hour bucket. Between sessions Anthropic omits resets_at, so
-            // we render a neutral placeholder rather than silently hiding a
-            // pin the user explicitly asked for.
-            case .sessionReset, .sessionPacing: return data.hasFiveHourBucket
-            case .weeklyPacing: return data.hasWeeklyPacing
+    /// The configured pins, filtered down to the ones that currently have
+    /// something to show. Order is preserved from `menuBarConfig.pinned`.
+    static func visiblePins(_ data: RenderData) -> [PinnedMetricConfig] {
+        data.menuBarConfig.pinned.filter { pin in
+            switch pin.id {
+            case .fiveHour, .sessionReset, .sessionPacing: return data.hasFiveHourBucket
+            case .sevenDay: return true
+            case .sonnet: return true
             case .design: return data.hasDesign
             case .fable: return data.hasFable
-            case .serviceStatus: return true
-            // Extra Credits only renders when the paid pool is provisioned and
-            // enabled. Hidden otherwise so non-overage users never see "EC 0%".
             case .extraCredits: return data.hasExtraCredits
-            default: return true
+            case .weeklyPacing: return data.hasWeeklyPacing
+            case .serviceStatus: return true
             }
         }
-
-        // If every pin got filtered out (no five-hour bucket yet, no weekly
-        // pacing, no design quota), fall back to the logo so the status item
-        // is always visible. Returning the empty-pipeline image produces a
-        // 2pt-wide icon that reads as "the menu bar item disappeared".
-        if ordered.isEmpty {
-            return renderLogoTemplate()
-        }
-        for (i, metric) in ordered.enumerated() {
-            if i > 0 {
-                str.append(NSAttributedString(string: separator, attributes: sepAttrs))
-            }
-            switch metric {
-            case .serviceStatus:
-                appendServiceStatus(to: str, data: data)
-            case .sessionReset:
-                appendSessionReset(to: str, data: data)
-            case .sessionPacing:
-                if data.hasSessionPacing {
-                    appendPacing(
-                        to: str,
-                        delta: data.sessionPacingDelta,
-                        zone: data.sessionPacingZone,
-                        mode: data.sessionPacingDisplayMode,
-                        data: data
-                    )
-                } else {
-                    appendPacingPlaceholder(
-                        to: str,
-                        mode: data.sessionPacingDisplayMode,
-                        data: data
-                    )
-                }
-            case .weeklyPacing:
-                appendPacing(
-                    to: str,
-                    delta: data.weeklyPacingDelta,
-                    zone: data.weeklyPacingZone,
-                    mode: data.weeklyPacingDisplayMode,
-                    data: data
-                )
-            case .fiveHour, .sevenDay, .sonnet, .design, .fable, .extraCredits:
-                let value: Int
-                switch metric {
-                case .fiveHour: value = data.fiveHourPct
-                case .sevenDay: value = data.sevenDayPct
-                case .sonnet: value = data.sonnetPct
-                case .design: value = data.designPct
-                case .fable: value = data.fablePct
-                case .extraCredits: value = data.extraCreditsPct
-                default: value = 0
-                }
-                appendPercentMetric(
-                    to: str,
-                    label: metric.shortLabel,
-                    value: value,
-                    resetDate: resetDate(for: metric, data: data),
-                    windowDuration: windowDuration(for: metric),
-                    data: data
-                )
-            }
-        }
-
-        let size = str.size()
-        let imgSize = NSSize(width: ceil(size.width) + 2, height: height)
-        let img = NSImage(size: imgSize, flipped: false) { _ in
-            str.draw(at: NSPoint(x: 1, y: (height - size.height) / 2))
-            return true
-        }
-        img.isTemplate = false
-        return img
     }
 
-    private static func appendServiceStatus(to str: NSMutableAttributedString, data: RenderData) {
-        let mono = data.menuBarMonochrome
+    // MARK: - Line building (pure, testable)
+
+    /// Builds the full attributed line for the current display mode, without
+    /// touching AppKit imaging. Empty when nothing is pinned/visible.
+    static func buildLine(data: RenderData) -> NSAttributedString {
+        let visible = visiblePins(data)
+        guard !visible.isEmpty else { return NSAttributedString() }
+
+        switch data.menuBarConfig.displayMode {
+        case .all:
+            return buildAllLine(visible, data: data)
+        case .highestRisk:
+            guard let pin = highestRiskPin(visible, data: data) else { return NSAttributedString() }
+            return buildSingle(pin, data: data, worstCase: false)
+        case .rotate:
+            let index = ((data.rotateIndex % visible.count) + visible.count) % visible.count
+            return buildSingle(visible[index], data: data, worstCase: false)
+        }
+    }
+
+    /// The widest this configuration's line could ever render, used to pad
+    /// the status item to a stable width (`fixedWidth`). "All" mode measures
+    /// the full worst-case line; single-pin modes take the max width across
+    /// every pinned metric's own worst case, since rotation/highest-risk can
+    /// land on any of them.
+    static func fixedWidthMeasurement(data: RenderData) -> CGFloat {
+        let visible = visiblePins(data)
+        guard !visible.isEmpty else { return 0 }
+        switch data.menuBarConfig.displayMode {
+        case .all:
+            return ceil(buildAllLine(visible, data: data, worstCase: true).size().width)
+        case .highestRisk, .rotate:
+            return visible.map { ceil(buildSingle($0, data: data, worstCase: true).size().width) }.max() ?? 0
+        }
+    }
+
+    private static func buildAllLine(_ pins: [PinnedMetricConfig], data: RenderData, worstCase: Bool = false) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        let sepAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor,
+        ]
+        for (i, pin) in pins.enumerated() {
+            if i > 0 {
+                str.append(NSAttributedString(string: " \(data.menuBarConfig.separator) ", attributes: sepAttrs))
+            }
+            str.append(buildSingle(pin, data: data, worstCase: worstCase))
+        }
+        return str
+    }
+
+    /// Picks the pinned metric with the highest risk rank. Ties keep pinned
+    /// order (strict `>` only replaces the running best).
+    private static func highestRiskPin(_ pins: [PinnedMetricConfig], data: RenderData) -> PinnedMetricConfig? {
+        var best: PinnedMetricConfig?
+        var bestScore = -1
+        for pin in pins {
+            let score = riskScore(pin, data: data)
+            if score > bestScore {
+                bestScore = score
+                best = pin
+            }
+        }
+        return best
+    }
+
+    private static func riskScore(_ pin: PinnedMetricConfig, data: RenderData) -> Int {
+        switch pin.id {
+        case .fiveHour:
+            return zoneRank(pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), data: data)
+        case .sevenDay:
+            return zoneRank(pct: data.sevenDayPct, resetDate: data.sevenDayResetDate, windowDuration: windowDuration(for: .sevenDay), data: data)
+        case .sonnet:
+            return zoneRank(pct: data.sonnetPct, resetDate: data.sonnetResetDate, windowDuration: windowDuration(for: .sonnet), data: data)
+        case .design:
+            return zoneRank(pct: data.designPct, resetDate: data.designResetDate, windowDuration: windowDuration(for: .design), data: data)
+        case .fable:
+            return zoneRank(pct: data.fablePct, resetDate: data.fableResetDate, windowDuration: windowDuration(for: .fable), data: data)
+        case .extraCredits:
+            return zoneRank(pct: data.extraCreditsPct, resetDate: nil, windowDuration: 0, data: data)
+        case .sessionPacing:
+            return data.hasSessionPacing ? pacingRank(data.sessionPacingZone) : 0
+        case .weeklyPacing:
+            return data.hasWeeklyPacing ? pacingRank(data.weeklyPacingZone) : 0
+        case .serviceStatus:
+            return data.outageHealth.rawValue
+        case .sessionReset:
+            return zoneRank(pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), data: data)
+        }
+    }
+
+    // MARK: - Per-pin rendering
+
+    private static func buildSingle(_ pin: PinnedMetricConfig, data: RenderData, worstCase: Bool) -> NSAttributedString {
+        switch pin.id {
+        case .fiveHour:
+            return buildPercentMetric(pin, pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), countdown: data.fiveHourReset, data: data, worstCase: worstCase)
+        case .sevenDay:
+            return buildPercentMetric(pin, pct: data.sevenDayPct, resetDate: data.sevenDayResetDate, windowDuration: windowDuration(for: .sevenDay), countdown: data.sevenDayReset, data: data, worstCase: worstCase)
+        case .sonnet:
+            return buildPercentMetric(pin, pct: data.sonnetPct, resetDate: data.sonnetResetDate, windowDuration: windowDuration(for: .sonnet), countdown: data.sonnetReset, data: data, worstCase: worstCase)
+        case .design:
+            return buildPercentMetric(pin, pct: data.designPct, resetDate: data.designResetDate, windowDuration: windowDuration(for: .design), countdown: data.designReset, data: data, worstCase: worstCase)
+        case .fable:
+            return buildPercentMetric(pin, pct: data.fablePct, resetDate: data.fableResetDate, windowDuration: windowDuration(for: .fable), countdown: data.fableReset, data: data, worstCase: worstCase)
+        case .extraCredits:
+            return buildExtraCreditsMetric(pin, data: data, worstCase: worstCase)
+        case .sessionPacing:
+            return buildPacingMetric(pin, hasData: data.hasSessionPacing, delta: data.sessionPacingDelta, zone: data.sessionPacingZone, mode: data.sessionPacingDisplayMode, data: data)
+        case .weeklyPacing:
+            return buildPacingMetric(pin, hasData: true, delta: data.weeklyPacingDelta, zone: data.weeklyPacingZone, mode: data.weeklyPacingDisplayMode, data: data)
+        case .serviceStatus:
+            return buildServiceStatus(pin, data: data)
+        case .sessionReset:
+            return buildCountdownOnly(data: data)
+        }
+    }
+
+    /// `label + value%` for a simple percentage metric (5h/7d/Sonnet/Design/
+    /// Fable). `worstCase` forces the value to "100" - the widest a percent
+    /// value can ever render - for `fixedWidthMeasurement`.
+    private static func buildPercentMetric(
+        _ pin: PinnedMetricConfig,
+        pct: Int,
+        resetDate: Date?,
+        windowDuration: TimeInterval,
+        countdown: String,
+        data: RenderData,
+        worstCase: Bool
+    ) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        appendPrefix(pin, to: str, data: data)
+
+        let displayPct: Int
+        if worstCase {
+            displayPct = 100
+        } else if pin.value == .percentRemaining {
+            displayPct = max(0, 100 - pct)
+        } else {
+            displayPct = pct
+        }
+        let color = metricColor(pct: pct, resetDate: resetDate, windowDuration: windowDuration, data: data)
+        str.append(NSAttributedString(string: "\(displayPct)%", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: color,
+        ]))
+
+        if pin.showCountdown, !countdown.isEmpty {
+            str.append(NSAttributedString(string: " \(countdown)", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+        return str
+    }
+
+    /// Extra Credits is the only metric `.dollars` renders for; any other
+    /// value style still falls back to a plain percentage.
+    private static func buildExtraCreditsMetric(_ pin: PinnedMetricConfig, data: RenderData, worstCase: Bool) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        appendPrefix(pin, to: str, data: data)
+
+        let color = metricColor(pct: data.extraCreditsPct, resetDate: nil, windowDuration: 0, data: data)
+        let text: String
+        switch pin.value {
+        case .dollars:
+            text = worstCase
+                ? "$100"
+                : CurrencyFormatter.formatMinorUnits(
+                    data.extraCreditsUsedMinorUnits,
+                    currencyCode: data.extraCreditsCurrency,
+                    locale: Locale(identifier: "en_US")
+                )
+        case .percentRemaining:
+            text = "\(worstCase ? 100 : max(0, 100 - data.extraCreditsPct))%"
+        case .percentUsed:
+            text = "\(worstCase ? 100 : data.extraCreditsPct)%"
+        }
+        str.append(NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: color,
+        ]))
+        return str
+    }
+
+    /// Session/weekly pacing row: dot / dot+delta / delta per
+    /// `PacingDisplayMode`. The dot glyph is a fixed "\u{25CF}".
+    private static let pacingGlyph = "\u{25CF}"
+
+    private static func buildPacingMetric(
+        _ pin: PinnedMetricConfig,
+        hasData: Bool,
+        delta: Int,
+        zone: PacingZone,
+        mode: PacingDisplayMode,
+        data: RenderData
+    ) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        appendPrefix(pin, to: str, data: data)
+
+        let color = pacingColor(zone, hasData: hasData, data: data)
+        let dotAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: color,
+        ]
+        let deltaAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: color,
+        ]
+        let sign = delta >= 0 ? "+" : ""
+        switch mode {
+        case .dot:
+            str.append(NSAttributedString(string: pacingGlyph, attributes: dotAttrs))
+        case .dotDelta:
+            str.append(NSAttributedString(string: pacingGlyph, attributes: dotAttrs))
+            str.append(NSAttributedString(string: hasData ? " \(sign)\(delta)%" : " -", attributes: deltaAttrs))
+        case .delta:
+            str.append(NSAttributedString(string: hasData ? "\(sign)\(delta)%" : "-", attributes: deltaAttrs))
+        }
+        return str
+    }
+
+    private static func buildServiceStatus(_ pin: PinnedMetricConfig, data: RenderData) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        let mono = data.menuBarConfig.colorMode == .monochrome
         let symbolName: String
         let color: NSColor
+        let fallbackText: String
         switch data.outageHealth {
-        case .healthy:  symbolName = "checkmark.circle.fill";        color = mono ? .labelColor : .systemGreen
-        case .degraded: symbolName = "exclamationmark.triangle.fill"; color = mono ? .labelColor : .systemOrange
-        case .down:     symbolName = "exclamationmark.triangle.fill"; color = mono ? .labelColor : .systemRed
+        case .healthy:  symbolName = "checkmark.circle.fill";         color = mono ? .labelColor : .systemGreen;  fallbackText = "OK"
+        case .degraded: symbolName = "exclamationmark.triangle.fill"; color = mono ? .labelColor : .systemOrange; fallbackText = "!"
+        case .down:     symbolName = "exclamationmark.triangle.fill"; color = mono ? .labelColor : .systemRed;    fallbackText = "!"
         }
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        if let glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-            let attachment = NSTextAttachment()
-            attachment.image = glyph
-            attachment.bounds = CGRect(x: 0, y: (11 - glyph.size.height) / 2, width: glyph.size.width, height: glyph.size.height)
-            str.append(NSAttributedString(attachment: attachment))
+
+        if data.menuBarConfig.showIcon {
+            appendSymbol(symbolName, color: color, to: str)
+        } else {
+            str.append(NSAttributedString(string: fallbackText, attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: color,
+            ]))
         }
+
         if data.outageHealth == .down, let secs = data.nextPollSeconds {
             let clamped = max(0, secs)
             let text = String(format: " %d:%02d", clamped / 60, clamped % 60)
             str.append(NSAttributedString(string: text, attributes: [
-                .font: styleFont(size: 11, weight: .semibold, style: data.menuBarStyle, monospacedDigits: true),
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
                 .foregroundColor: color,
             ]))
         }
+        return str
     }
 
-    private static func appendSessionReset(to str: NSMutableAttributedString, data: RenderData) {
-        let resolvedText = resetDisplayText(data: data)
-        // Empty only when `fiveHour.resetsAt` is nil - typically between two
-        // 5h windows. Fall back to an em-less `-` placeholder so the pin
-        // stays visible and the user knows it's still active.
-        let text = resolvedText.isEmpty ? "-" : resolvedText
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 12, weight: .bold, style: data.menuBarStyle, monospacedDigits: true),
-            .foregroundColor: resetValueColor(data),
-        ]
-        str.append(NSAttributedString(string: text, attributes: attrs))
+    /// `sessionReset` is not offered in the "add a pin" menu - a percentage
+    /// pin's `showCountdown` flag covers that role instead. This case only
+    /// exists so the switch stays exhaustive if a config is ever decoded with
+    /// that id; it renders countdown text alone, no value.
+    private static func buildCountdownOnly(data: RenderData) -> NSAttributedString {
+        let text = data.fiveHourReset.isEmpty ? "-" : data.fiveHourReset
+        let color = metricColor(pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), data: data)
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: color,
+        ])
     }
 
-    // MARK: - Badge pill rendering
+    // MARK: - Prefix (icon / short label)
 
-    /// Badge style: each metric becomes a small rounded pill with a tinted
-    /// background and colour-matched text. Drawn directly with NSBezierPath
-    /// rather than NSAttributedString so we can get real rounded corners in
-    /// the menu bar icon.
-    private struct BadgePill {
-        let text: String
-        let tint: NSColor
-    }
-
-    private static func renderBadgePills(_ data: RenderData) -> NSImage {
-        let pills = buildBadgePills(data)
-        let height: CGFloat = 22
-        let pillHeight: CGFloat = 17
-        let paddingH: CGFloat = 7
-        let gap: CGFloat = 5
-
-        let font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
-
-        let widths: [CGFloat] = pills.map { pill in
-            ceil((pill.text as NSString).size(withAttributes: textAttrs).width) + paddingH * 2
-        }
-        let totalWidth = widths.reduce(0, +) + CGFloat(max(pills.count - 1, 0)) * gap
-        guard totalWidth > 0 else {
-            return NSImage(size: NSSize(width: 1, height: height))
-        }
-
-        let imgSize = NSSize(width: ceil(totalWidth) + 2, height: height)
-        let img = NSImage(size: imgSize, flipped: false) { _ in
-            var x: CGFloat = 1
-            for (i, pill) in pills.enumerated() {
-                let w = widths[i]
-                let pillRect = NSRect(
-                    x: x,
-                    y: (height - pillHeight) / 2,
-                    width: w,
-                    height: pillHeight
-                )
-                let path = NSBezierPath(
-                    roundedRect: pillRect,
-                    xRadius: pillHeight / 2,
-                    yRadius: pillHeight / 2
-                )
-                // Tinted fill (15% opacity) with a 1px outline of the same
-                // colour at higher opacity - keeps the pill readable on both
-                // light and dark menu bars.
-                pill.tint.withAlphaComponent(0.18).setFill()
-                path.fill()
-                pill.tint.withAlphaComponent(0.55).setStroke()
-                path.lineWidth = 0.8
-                path.stroke()
-
-                // Text centred.
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: font,
-                    .foregroundColor: pill.tint,
-                ]
-                let textSize = (pill.text as NSString).size(withAttributes: attrs)
-                let textOrigin = NSPoint(
-                    x: x + (w - textSize.width) / 2,
-                    y: (height - textSize.height) / 2 - 0.5
-                )
-                (pill.text as NSString).draw(at: textOrigin, withAttributes: attrs)
-
-                x += w + gap
+    private static func appendPrefix(_ pin: PinnedMetricConfig, to str: NSMutableAttributedString, data: RenderData) {
+        switch pin.prefix {
+        case .none:
+            return
+        case .shortLabel:
+            appendShortLabel(pin.id, to: str)
+        case .symbol:
+            if data.menuBarConfig.showIcon {
+                appendSymbol(pin.id.menuBarSymbolName, color: .secondaryLabelColor, to: str)
+                str.append(NSAttributedString(string: " ", attributes: [.font: NSFont.systemFont(ofSize: 9)]))
+            } else {
+                appendShortLabel(pin.id, to: str)
             }
+        }
+    }
+
+    private static func appendShortLabel(_ id: MetricID, to str: NSMutableAttributedString) {
+        let label = id.shortLabel
+        guard !label.isEmpty else { return }
+        str.append(NSAttributedString(string: "\(label) ", attributes: [
+            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+    }
+
+    /// SF Symbol prefix, sized to the surrounding text's cap height so it
+    /// sits centered on the baseline instead of towering over/under the text.
+    private static func appendSymbol(_ name: String, color: NSColor, to str: NSMutableAttributedString, pointSize: CGFloat = 11) {
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        guard let glyph = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
+        let capHeight = NSFont.systemFont(ofSize: pointSize).capHeight
+        let attachment = NSTextAttachment()
+        attachment.image = glyph
+        attachment.bounds = CGRect(x: 0, y: (capHeight - glyph.size.height) / 2, width: glyph.size.width, height: glyph.size.height)
+        str.append(NSAttributedString(attachment: attachment))
+    }
+
+    // MARK: - Imaging
+
+    private static func renderPinnedMetrics(_ data: RenderData) -> NSImage {
+        let line = buildLine(data: data)
+        guard line.length > 0 else { return renderLogoTemplate() }
+
+        let height: CGFloat = 22
+        var contentWidth = ceil(line.size().width)
+        if data.menuBarConfig.fixedWidth {
+            contentWidth = max(contentWidth, fixedWidthMeasurement(data: data))
+        }
+
+        let imgSize = NSSize(width: contentWidth + 2, height: height)
+        let lineSize = line.size()
+        let img = NSImage(size: imgSize, flipped: false) { _ in
+            line.draw(at: NSPoint(x: 1, y: (height - lineSize.height) / 2))
             return true
         }
         img.isTemplate = false
         return img
-    }
-
-    private static func buildBadgePills(_ data: RenderData) -> [BadgePill] {
-        let ordered: [MetricID] = [
-            .serviceStatus, .sessionReset, .fiveHour, .sessionPacing, .sevenDay, .weeklyPacing, .sonnet, .design, .fable, .extraCredits
-        ].filter {
-            guard data.pinnedMetrics.contains($0) else { return false }
-            // Sonnet / Design / Extra Credits visibility in the menu bar is
-            // purely driven by pinnedMetrics. Popover visibility has its own
-            // toggles.
-            if $0 == .design && !data.hasDesign { return false }
-            if $0 == .fable && !data.hasFable { return false }
-            switch $0 {
-            case .sessionReset, .sessionPacing: return data.hasFiveHourBucket
-            case .weeklyPacing: return data.hasWeeklyPacing
-            case .design: return data.hasDesign
-            case .fable: return data.hasFable
-            case .serviceStatus: return true
-            case .extraCredits: return data.hasExtraCredits
-            default: return true
-            }
-        }
-
-        return ordered.compactMap { metric -> BadgePill? in
-            let mono = data.menuBarMonochrome
-            switch metric {
-            case .serviceStatus:
-                switch data.outageHealth {
-                case .healthy:
-                    return BadgePill(text: "OK", tint: mono ? .labelColor : .systemGreen)
-                case .degraded:
-                    return BadgePill(text: "!", tint: mono ? .labelColor : .systemOrange)
-                case .down:
-                    let text: String
-                    if let secs = data.nextPollSeconds {
-                        let clamped = max(0, secs)
-                        text = String(format: "%d:%02d", clamped / 60, clamped % 60)
-                    } else {
-                        text = "!"
-                    }
-                    return BadgePill(text: text, tint: mono ? .labelColor : .systemRed)
-                }
-            case .sessionReset:
-                let text = resetDisplayText(data: data)
-                return BadgePill(
-                    text: text.isEmpty ? "-" : text,
-                    tint: resetValueColor(data)
-                )
-            case .fiveHour:
-                return BadgePill(
-                    text: "\(data.fiveHourPct)%",
-                    tint: colorForPct(data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: 5 * 3600, data: data)
-                )
-            case .sevenDay:
-                return BadgePill(
-                    text: "\(data.sevenDayPct)%",
-                    tint: colorForPct(data.sevenDayPct, resetDate: data.sevenDayResetDate, windowDuration: 7 * 86_400, data: data)
-                )
-            case .sonnet:
-                return BadgePill(
-                    text: "\(data.sonnetPct)%",
-                    tint: colorForPct(data.sonnetPct, resetDate: data.sonnetResetDate, windowDuration: 7 * 86_400, data: data)
-                )
-            case .design:
-                return BadgePill(
-                    text: "\(data.designPct)%",
-                    tint: colorForPct(data.designPct, resetDate: data.designResetDate, windowDuration: 7 * 86_400, data: data)
-                )
-            case .fable:
-                return BadgePill(
-                    text: "\(data.fablePct)%",
-                    tint: colorForPct(data.fablePct, resetDate: data.fableResetDate, windowDuration: 7 * 86_400, data: data)
-                )
-            case .extraCredits:
-                // No reset window: pass nil/0 so colorForPct falls back to the
-                // static threshold colour instead of risk-based smart colour.
-                return BadgePill(
-                    text: "\(data.extraCreditsPct)%",
-                    tint: colorForPct(data.extraCreditsPct, resetDate: nil, windowDuration: 0, data: data)
-                )
-            case .sessionPacing:
-                return pacingBadgePill(
-                    hasData: data.hasSessionPacing,
-                    zone: data.sessionPacingZone,
-                    delta: data.sessionPacingDelta,
-                    mode: data.sessionPacingDisplayMode,
-                    data: data
-                )
-            case .weeklyPacing:
-                return pacingBadgePill(
-                    hasData: true,
-                    zone: data.weeklyPacingZone,
-                    delta: data.weeklyPacingDelta,
-                    mode: data.weeklyPacingDisplayMode,
-                    data: data
-                )
-            }
-        }
-    }
-
-    /// Badge pacing pill content varies with `PacingDisplayMode`:
-    /// dot-only, delta-only, or dot + delta. Also handles the placeholder
-    /// state when we don't have a pacing result yet.
-    private static func pacingBadgePill(
-        hasData: Bool,
-        zone: PacingZone,
-        delta: Int,
-        mode: PacingDisplayMode,
-        data: RenderData
-    ) -> BadgePill {
-        let tint = hasData ? colorForZone(zone, data: data) : NSColor.tertiaryLabelColor
-        let sign = delta >= 0 ? "+" : ""
-        let shape = data.pacingShape.glyph
-        let text: String = {
-            switch mode {
-            case .dot:      return shape
-            case .dotDelta: return hasData ? "\(shape) \(sign)\(delta)%" : "\(shape) -"
-            case .delta:    return hasData ? "\(sign)\(delta)%" : "-"
-            }
-        }()
-        return BadgePill(text: text, tint: tint)
-    }
-
-    // MARK: - Style-aware helpers
-
-    /// Font factory that adapts to `MenuBarStyle`:
-    /// - classic: system font
-    /// - mono: full monospaced system font
-    /// - badge: rounded design (used behind pill text)
-    /// `monospacedDigits` forces tabular-nums on the classic and minimal styles
-    /// so percentages don't jitter as they change width.
-    private static func styleFont(
-        size: CGFloat,
-        weight: NSFont.Weight,
-        style: MenuBarStyle,
-        monospacedDigits: Bool = false
-    ) -> NSFont {
-        switch style {
-        case .mono:
-            return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        case .badge:
-            let base = NSFont.systemFont(ofSize: size, weight: weight)
-            let rounded = NSFontDescriptor(
-                fontAttributes: [.family: "SF Pro Rounded"]
-            )
-            if let custom = NSFont(descriptor: rounded, size: size) {
-                return monospacedDigits
-                    ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
-                    : custom
-            }
-            return base
-        case .classic:
-            return monospacedDigits
-                ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
-                : NSFont.systemFont(ofSize: size, weight: weight)
-        }
-    }
-
-    /// Renders a `label + value%` block with style-specific layout:
-    /// - classic: "5h 26%" (label tinted tertiary, value bold colored)
-    /// - mono: "5h:26" (all mono, colon separator, no %)
-    /// - minimal: "26%" (rounded font, no label)
-    private static func appendPercentMetric(
-        to str: NSMutableAttributedString,
-        label: String,
-        value: Int,
-        resetDate: Date?,
-        windowDuration: TimeInterval,
-        data: RenderData
-    ) {
-        let valueColor = colorForPct(value, resetDate: resetDate, windowDuration: windowDuration, data: data)
-
-        switch data.menuBarStyle {
-        case .classic:
-            let labelAttrs: [NSAttributedString.Key: Any] = [
-                .font: styleFont(size: 9, weight: .medium, style: .classic),
-                .foregroundColor: periodColor(data),
-            ]
-            let valueAttrs: [NSAttributedString.Key: Any] = [
-                .font: styleFont(size: 12, weight: .bold, style: .classic, monospacedDigits: true),
-                .foregroundColor: valueColor,
-            ]
-            str.append(NSAttributedString(string: "\(label) ", attributes: labelAttrs))
-            str.append(NSAttributedString(string: "\(value)%", attributes: valueAttrs))
-
-        case .mono:
-            let labelAttrs: [NSAttributedString.Key: Any] = [
-                .font: styleFont(size: 11, weight: .regular, style: .mono),
-                .foregroundColor: periodColor(data),
-            ]
-            let valueAttrs: [NSAttributedString.Key: Any] = [
-                .font: styleFont(size: 11, weight: .bold, style: .mono),
-                .foregroundColor: valueColor,
-            ]
-            str.append(NSAttributedString(string: "\(label):", attributes: labelAttrs))
-            str.append(NSAttributedString(string: "\(value)", attributes: valueAttrs))
-
-        case .badge:
-            let valueAttrs: [NSAttributedString.Key: Any] = [
-                .font: styleFont(size: 13, weight: .bold, style: .badge, monospacedDigits: true),
-                .foregroundColor: valueColor,
-            ]
-            str.append(NSAttributedString(string: "\(value)%", attributes: valueAttrs))
-        }
-    }
-
-    private static func resetDisplayText(data: RenderData) -> String {
-        let relative = data.fiveHourReset
-        let absolute = data.fiveHourResetAbsolute
-        switch data.resetDisplayFormat {
-        case .relative:
-            return relative
-        case .absolute:
-            return absolute
-        case .both:
-            if relative.isEmpty { return absolute }
-            if absolute.isEmpty { return relative }
-            return "\(relative) - \(absolute)"
-        }
-    }
-
-    private static func appendPacing(
-        to str: NSMutableAttributedString,
-        delta: Int,
-        zone: PacingZone,
-        mode: PacingDisplayMode,
-        data: RenderData
-    ) {
-        let dotColor = colorForZone(zone, data: data)
-        let dotAttrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 11, weight: .bold, style: data.menuBarStyle),
-            .foregroundColor: dotColor,
-        ]
-        let deltaAttrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 10, weight: .bold, style: data.menuBarStyle, monospacedDigits: true),
-            .foregroundColor: dotColor,
-        ]
-        let sign = delta >= 0 ? "+" : ""
-        switch mode {
-        case .dot:
-            str.append(NSAttributedString(string: data.pacingShape.glyph, attributes: dotAttrs))
-        case .dotDelta:
-            str.append(NSAttributedString(string: data.pacingShape.glyph, attributes: dotAttrs))
-            str.append(NSAttributedString(string: " \(sign)\(delta)%", attributes: deltaAttrs))
-        case .delta:
-            str.append(NSAttributedString(string: "\(sign)\(delta)%", attributes: deltaAttrs))
-        }
-    }
-
-    /// Neutral placeholder used when the pacing bucket exists but `resets_at`
-    /// is missing, so we can't compute a meaningful delta. Uses the system's
-    /// tertiary label colour to signal "data pending" without faking an
-    /// on-track state.
-    private static func appendPacingPlaceholder(
-        to str: NSMutableAttributedString,
-        mode: PacingDisplayMode,
-        data: RenderData
-    ) {
-        let neutralColor: NSColor = .tertiaryLabelColor
-        let dotAttrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 11, weight: .bold, style: data.menuBarStyle),
-            .foregroundColor: neutralColor,
-        ]
-        let textAttrs: [NSAttributedString.Key: Any] = [
-            .font: styleFont(size: 10, weight: .bold, style: data.menuBarStyle, monospacedDigits: true),
-            .foregroundColor: neutralColor,
-        ]
-        switch mode {
-        case .dot:
-            str.append(NSAttributedString(string: data.pacingShape.glyph, attributes: dotAttrs))
-        case .dotDelta:
-            str.append(NSAttributedString(string: data.pacingShape.glyph, attributes: dotAttrs))
-            str.append(NSAttributedString(string: " -", attributes: textAttrs))
-        case .delta:
-            str.append(NSAttributedString(string: "-", attributes: textAttrs))
-        }
     }
 
     /// App logo silhouette for menu bar (template - macOS renders white/black automatically).

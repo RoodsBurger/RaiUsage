@@ -1,10 +1,8 @@
 import SwiftUI
 
 /// Settings space -> hosts the secondary sidebar (`SettingsSubSidebar`) and
-/// dispatches to the correct configuration screen based on `selection`.
-/// The five screens (general / display / themes / popover /
-/// performance) remain in their existing files -> this view is just the
-/// router.
+/// dispatches to the correct configuration screen based on `selection`. Each
+/// screen lives in its own file -> this view is just the router.
 struct SettingsRootView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
 
@@ -33,8 +31,8 @@ struct SettingsRootView: View {
         switch selection {
         case .general:
             scrolling { SettingsSectionView(initialStatusInterval: settingsStore.statusPollInterval) }
-        case .display:
-            scrolling { DisplaySectionView(initialMetrics: settingsStore.pinnedMetrics) }
+        case .menuBar:
+            MenuBarSectionView()
         case .pacing:
             scrolling {
                 PacingSectionView(

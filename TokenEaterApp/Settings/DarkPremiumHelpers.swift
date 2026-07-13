@@ -88,6 +88,58 @@ func darkPrimaryButton(_ titleKey: LocalizedStringResource, action: @escaping ()
     .buttonStyle(.plain)
 }
 
+// MARK: - Click Chip
+
+/// Generic click-to-toggle chip. Two visual styles:
+/// - `.compact`  -> short pill for header / inline use
+/// - `.tile`     -> larger card-like surface for grouped grids
+struct ClickChip: View {
+    enum Style { case compact, tile }
+
+    let label: String
+    let icon: String?
+    let isActive: Bool
+    let accent: Color
+    var style: Style = .tile
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: style == .compact ? 5 : 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: style == .compact ? 9 : 11, weight: .semibold))
+                }
+                Text(label)
+                    .font(.system(size: style == .compact ? 10 : 12, weight: .medium))
+            }
+            .foregroundStyle(isActive ? accent : .white.opacity(0.55))
+            .padding(.horizontal, style == .compact ? 9 : 12)
+            .padding(.vertical, style == .compact ? 5 : 8)
+            .frame(maxWidth: style == .tile ? .infinity : nil)
+            .background(chipBackground)
+            .scaleEffect(hovering ? 1.02 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: hovering)
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private var chipBackground: some View {
+        let radius: CGFloat = style == .compact ? 7 : 9
+        RoundedRectangle(cornerRadius: radius)
+            .fill(isActive ? accent.opacity(0.18) : Color.white.opacity(0.04))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius)
+                    .stroke(isActive ? accent.opacity(0.55) : Color.white.opacity(0.07), lineWidth: 1)
+            )
+    }
+}
+
 // MARK: - Reset Section Button
 
 /// Bottom-of-section reset control with a destructive confirmation alert.

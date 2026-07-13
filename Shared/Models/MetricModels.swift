@@ -1,6 +1,6 @@
 import Foundation
 
-enum MetricID: String, CaseIterable {
+enum MetricID: String, CaseIterable, Codable, Sendable {
     case fiveHour = "fiveHour"
     case sessionReset = "sessionReset"
     case sevenDay = "sevenDay"

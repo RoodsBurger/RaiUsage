@@ -4,11 +4,10 @@ import Foundation
 /// SettingsStore as part of the fat-store split, same pattern as
 /// `PacingSettingsStore` and `NotificationSettingsStore`.
 ///
-/// Owns the menu-bar visibility + style, the pinned metrics set, the reset /
-/// pacing display formats, the smart-color settings, the gauge warning/
-/// critical thresholds, the menu-bar monochrome toggle, the menu-bar text
-/// colors, and the popover satellite toggles. Each property persists itself
-/// to UserDefaults.
+/// Owns the menu-bar visibility + rendering config, the pinned metrics set
+/// consumed by the popover, the reset / pacing display formats, the
+/// smart-color settings, the gauge warning/critical thresholds, and the
+/// popover satellite toggles. Each property persists itself to UserDefaults.
 @MainActor
 final class DisplaySettingsStore: ObservableObject {
     @Published var showMenuBar: Bool {
@@ -51,34 +50,19 @@ final class DisplaySettingsStore: ObservableObject {
     @Published var criticalThreshold: Int {
         didSet { UserDefaults.standard.set(criticalThreshold, forKey: "criticalThreshold") }
     }
-    /// When true, every gauge/pacing color in the menu bar renders as the
-    /// system label color instead of its semantic `RiskZone` color.
-    @Published var menuBarMonochrome: Bool {
-        didSet { UserDefaults.standard.set(menuBarMonochrome, forKey: "menuBarMonochrome") }
-    }
-    /// Typography / separator style for the pinned metrics in the menu bar.
-    @Published var menuBarStyle: MenuBarStyle {
-        didSet { UserDefaults.standard.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
-    }
-    /// Glyph used for the pacing indicator across menu bar + popover.
-    @Published var pacingShape: PacingShape {
-        didSet { UserDefaults.standard.set(pacingShape.rawValue, forKey: "pacingShape") }
-    }
     @Published var sessionPacingDisplayMode: PacingDisplayMode {
         didSet { UserDefaults.standard.set(sessionPacingDisplayMode.rawValue, forKey: "sessionPacingDisplayMode") }
     }
     @Published var weeklyPacingDisplayMode: PacingDisplayMode {
         didSet { UserDefaults.standard.set(weeklyPacingDisplayMode.rawValue, forKey: "weeklyPacingDisplayMode") }
     }
-    /// Hex string ("#RRGGBB") for the menu-bar reset countdown text.
-    /// Empty = use the system's primary label color.
-    @Published var resetTextColorHex: String {
-        didSet { UserDefaults.standard.set(resetTextColorHex, forKey: "resetTextColorHex") }
-    }
-    /// Hex string ("#RRGGBB") for the "5h" / "7d" / "S" period label.
-    /// Empty = use the system's tertiary label color.
-    @Published var sessionPeriodColorHex: String {
-        didSet { UserDefaults.standard.set(sessionPeriodColorHex, forKey: "sessionPeriodColorHex") }
+    /// Full menu-bar rendering configuration (pins, order, per-pin format,
+    /// display mode, color mode, icon/separator/fixed-width). Persisted as
+    /// JSON; a decode failure or fresh install falls back to `MenuBarConfig()`.
+    /// Deliberately not migrated from the old `pinnedMetrics` set - a settings
+    /// reset on this one field is an acceptable cost for a personal fork.
+    @Published var menuBarConfig: MenuBarConfig {
+        didSet { saveMenuBarConfig() }
     }
     /// Controls whether the Sonnet satellite appears in the popover Classic
     /// variant AND in the dashboard constellation. The menu-bar visibility of
@@ -112,8 +96,6 @@ final class DisplaySettingsStore: ObservableObject {
         self.resetDisplayFormat = ResetDisplayFormat(
             rawValue: UserDefaults.standard.string(forKey: "resetDisplayFormat") ?? "relative"
         ) ?? .relative
-        self.resetTextColorHex = UserDefaults.standard.string(forKey: "resetTextColorHex") ?? ""
-        self.sessionPeriodColorHex = UserDefaults.standard.string(forKey: "sessionPeriodColorHex") ?? ""
 
         // Default ON.
         self.smartColorEnabled = UserDefaults.standard.object(forKey: "smartColorEnabled") as? Bool ?? true
@@ -128,20 +110,19 @@ final class DisplaySettingsStore: ObservableObject {
             let val = UserDefaults.standard.integer(forKey: "criticalThreshold")
             return val > 0 ? val : 85
         }()
-        self.menuBarMonochrome = UserDefaults.standard.bool(forKey: "menuBarMonochrome")
-        self.menuBarStyle = MenuBarStyle(
-            rawValue: UserDefaults.standard.string(forKey: "menuBarStyle") ?? "classic"
-        ) ?? .classic
-        self.pacingShape = PacingShape(
-            rawValue: UserDefaults.standard.string(forKey: "pacingShape") ?? "circle"
-        ) ?? .circle
-
         self.sessionPacingDisplayMode = PacingDisplayMode(
             rawValue: UserDefaults.standard.string(forKey: "sessionPacingDisplayMode") ?? "dotDelta"
         ) ?? .dotDelta
         self.weeklyPacingDisplayMode = PacingDisplayMode(
             rawValue: UserDefaults.standard.string(forKey: "weeklyPacingDisplayMode") ?? "dotDelta"
         ) ?? .dotDelta
+
+        if let data = UserDefaults.standard.data(forKey: "menuBarConfig"),
+           let decoded = try? JSONDecoder().decode(MenuBarConfig.self, from: data) {
+            self.menuBarConfig = decoded
+        } else {
+            self.menuBarConfig = MenuBarConfig()
+        }
 
         if let saved = UserDefaults.standard.stringArray(forKey: "pinnedMetrics") {
             self.pinnedMetrics = Set(saved.compactMap { MetricID(rawValue: $0) })
@@ -167,5 +148,10 @@ final class DisplaySettingsStore: ObservableObject {
         self.displayExtraCredits = UserDefaults.standard.object(forKey: "displayExtraCredits") != nil
             ? UserDefaults.standard.bool(forKey: "displayExtraCredits")
             : false
+    }
+
+    private func saveMenuBarConfig() {
+        guard let data = try? JSONEncoder().encode(menuBarConfig) else { return }
+        UserDefaults.standard.set(data, forKey: "menuBarConfig")
     }
 }

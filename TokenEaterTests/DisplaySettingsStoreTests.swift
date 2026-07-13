@@ -9,10 +9,10 @@ struct DisplaySettingsStoreTests {
     private let displayKeys = [
         "showMenuBar", "launchInBackground", "pinnedMetrics", "resetDisplayFormat",
         "smartColorEnabled", "smartResetColor", "smartColorProfile",
-        "menuBarStyle", "pacingShape", "sessionPacingDisplayMode", "weeklyPacingDisplayMode",
-        "pacingDisplayMode", "resetTextColorHex", "sessionPeriodColorHex",
+        "sessionPacingDisplayMode", "weeklyPacingDisplayMode",
+        "pacingDisplayMode", "menuBarConfig",
         "displaySonnet", "displayDesign", "showSessionReset",
-        "warningThreshold", "criticalThreshold", "menuBarMonochrome",
+        "warningThreshold", "criticalThreshold",
     ]
     private func clean() { displayKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
 
@@ -26,26 +26,54 @@ struct DisplaySettingsStoreTests {
         #expect(store.resetDisplayFormat == .relative)
         #expect(store.smartColorEnabled == true)
         #expect(store.smartColorProfile == .default)
-        #expect(store.menuBarStyle == .classic)
-        #expect(store.pacingShape == .circle)
         #expect(store.sessionPacingDisplayMode == .dotDelta)
         #expect(store.weeklyPacingDisplayMode == .dotDelta)
-        #expect(store.resetTextColorHex == "")
-        #expect(store.sessionPeriodColorHex == "")
         #expect(store.displaySonnet == false)
         #expect(store.displayDesign == false)
         #expect(store.warningThreshold == 60)
         #expect(store.criticalThreshold == 85)
-        #expect(store.menuBarMonochrome == false)
         #expect(store.thresholds == UsageThresholds(warningPercent: 60, criticalPercent: 85))
+        #expect(store.menuBarConfig == MenuBarConfig())
     }
 
-    @Test("changing menuBarStyle persists to UserDefaults")
-    func menuBarStylePersists() {
+    @Test("changing menuBarConfig persists to UserDefaults as JSON")
+    func menuBarConfigPersists() {
         clean(); defer { clean() }
         let store = DisplaySettingsStore()
-        store.menuBarStyle = .badge
-        #expect(UserDefaults.standard.string(forKey: "menuBarStyle") == MenuBarStyle.badge.rawValue)
+        store.menuBarConfig.colorMode = .monochrome
+        store.menuBarConfig.rotateSeconds = 9
+
+        let data = UserDefaults.standard.data(forKey: "menuBarConfig")
+        #expect(data != nil)
+        let decoded = data.flatMap { try? JSONDecoder().decode(MenuBarConfig.self, from: $0) }
+        #expect(decoded?.colorMode == .monochrome)
+        #expect(decoded?.rotateSeconds == 9)
+    }
+
+    @Test("menuBarConfig round-trips across store instances")
+    func menuBarConfigRoundTrips() {
+        clean(); defer { clean() }
+        let first = DisplaySettingsStore()
+        first.menuBarConfig = MenuBarConfig(
+            pinned: [.init(id: .sonnet, prefix: .symbol, value: .percentRemaining, showCountdown: true)],
+            displayMode: .highestRisk,
+            rotateSeconds: 20,
+            colorMode: .monochrome,
+            showIcon: false,
+            separator: "|",
+            fixedWidth: true
+        )
+
+        let second = DisplaySettingsStore()
+        #expect(second.menuBarConfig == first.menuBarConfig)
+    }
+
+    @Test("corrupted menuBarConfig data falls back to defaults")
+    func menuBarConfigDecodeFailureFallsBackToDefaults() {
+        clean(); defer { clean() }
+        UserDefaults.standard.set(Data("not json".utf8), forKey: "menuBarConfig")
+        let store = DisplaySettingsStore()
+        #expect(store.menuBarConfig == MenuBarConfig())
     }
 
     @Test("changing pinnedMetrics persists the raw value array")
@@ -104,20 +132,6 @@ struct DisplaySettingsStoreTests {
         #expect(second.thresholds == UsageThresholds(warningPercent: 65, criticalPercent: 92))
     }
 
-    // MARK: - menuBarMonochrome
-
-    @Test("menuBarMonochrome persists to UserDefaults")
-    func menuBarMonochromePersists() {
-        clean(); defer { clean() }
-        let store = DisplaySettingsStore()
-
-        store.menuBarMonochrome = true
-        #expect(UserDefaults.standard.bool(forKey: "menuBarMonochrome") == true)
-
-        store.menuBarMonochrome = false
-        #expect(UserDefaults.standard.bool(forKey: "menuBarMonochrome") == false)
-    }
-
     @Test("child change relays objectWillChange to SettingsStore parent")
     func relaysToParent() {
         clean(); defer { clean() }
@@ -127,7 +141,7 @@ struct DisplaySettingsStoreTests {
         )
         var fired = false
         let c = parent.objectWillChange.sink { fired = true }
-        parent.display.menuBarStyle = .badge
+        parent.display.menuBarConfig.colorMode = .monochrome
         #expect(fired == true)
         _ = c
     }

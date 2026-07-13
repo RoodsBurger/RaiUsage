@@ -41,14 +41,7 @@
 "settings.clickbehavior.dashboard" = "Dashboard";
 "settings.menubar.toggle" = "Show in menu bar";
 "settings.menubar.preview" = "Live preview";
-"settings.group.chrome" = "Chrome";
-"settings.group.chrome.hint" = "Style and shape of the bar.";
-"settings.group.pin" = "What to pin";
-"settings.group.pin.hint" = "Tap a chip to pin or unpin a metric. Active chips reveal their format options inline.";
-"settings.group.colors" = "Colors";
-"settings.group.colors.hint" = "Color the menu bar text. Smart Color (in Pacing) takes over the reset countdown when enabled.";
 "settings.metric.format" = "Format";
-"settings.menubar.color.custom" = "Custom";
 "settings.menubar.color.mono" = "Monochrome";
 "settings.menubar.title" = "Menu bar";
 "settings.tab.connection" = "Connection";
@@ -370,14 +363,11 @@
 /* Settings - Onboarding reset */
 "settings.onboarding.reset" = "Run setup again";
 
-/* Reset time display + menu-bar colors */
+/* Reset time display */
 "settings.reset.format" = "Reset display";
 "settings.reset.format.relative" = "Relative (1h39)";
 "settings.reset.format.absolute" = "Absolute (20:30)";
 "settings.reset.format.both" = "Both";
-"settings.reset.color" = "Reset countdown";
-"settings.session.periodcolor" = "Period label (5h / 7d)";
-"settings.menubar.color.resetColor" = "Revert to system default";
 
 /* Smart Color (global toggle in Pacing) */
 "settings.smartcolor.title" = "Smart Color";
@@ -514,19 +504,35 @@
 
 "menubar.updated.never" = "never";
 
-/* Menu bar style picker */
-"settings.menubar.style" = "Style";
-"menuBarStyle.classic" = "Classic";
-"menuBarStyle.mono" = "Mono";
-"menuBarStyle.badge" = "Badge";
+/* Menu bar engine (MenuBarSectionView) - pinned metrics */
+"settings.menubar.addPin" = "Add metric";
+"settings.menubar.removePin" = "Remove";
+"settings.menubar.prefix" = "Prefix";
+"settings.menubar.prefix.symbol" = "Icon";
+"settings.menubar.prefix.shortLabel" = "Label";
+"settings.menubar.prefix.none" = "None";
+"settings.menubar.value" = "Value";
+"settings.menubar.value.percentUsed" = "Used %";
+"settings.menubar.value.percentRemaining" = "Remaining %";
+"settings.menubar.value.dollars" = "Dollar amount";
+"settings.menubar.countdown" = "Show countdown";
 
-/* Pacing shape picker */
-"settings.pacing.shape" = "Pacing indicator shape";
-"pacingShape.circle" = "Circle";
-"pacingShape.diamond" = "Diamond";
-"pacingShape.square" = "Square";
-"pacingShape.triangle" = "Triangle";
-"pacingShape.star" = "Star";
+/* Menu bar engine - display mode */
+"settings.menubar.display" = "Display";
+"settings.menubar.mode" = "Mode";
+"settings.menubar.mode.all" = "All pins";
+"settings.menubar.mode.highestRisk" = "Highest risk";
+"settings.menubar.mode.rotate" = "Rotate";
+"settings.menubar.rotateSeconds %lld" = "Rotate every %lld s";
+
+/* Menu bar engine - appearance */
+"settings.menubar.appearance" = "Appearance";
+"settings.menubar.colorMode" = "Color";
+"settings.menubar.color.risk" = "Risk colors";
+"settings.menubar.showIcon" = "Show icons";
+"settings.menubar.separator" = "Separator";
+"settings.menubar.fixedWidth" = "Fixed width";
+"settings.menubar.fixedWidth.hint" = "Pad the status item so its width doesn't jump around as values change.";
 
 /* Menu bar icon right-click menu */
 "contextmenu.refresh" = "Refresh now";
