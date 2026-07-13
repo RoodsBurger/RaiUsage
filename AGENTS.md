@@ -30,8 +30,6 @@ Three targets:
 | `TokenEaterWidgetExtension` | The WidgetKit extension. Sandboxed and read-only (WidgetKit requires `app-sandbox: true`). | `TokenEaterWidget/` + `Shared/` |
 | `TokenEaterTests` | Swift Testing bundle, unsigned. | `TokenEaterTests/` + `Shared/` + the single file `TokenEaterApp/OnboardingViewModel.swift` |
 
-XcodeGen strips the widget's `NSExtension` key from `Info.plist` on every generate, so a `plutil -insert NSExtension ...` step is load-bearing and present in every workflow and in `SETUP.md`. Keep it; if the widget gallery ever shows nothing, this is the first thing to check.
-
 `Shared/` is compiled into all three targets:
 
 - `Shared/Models/` - pure `Codable` structs and enums (UsageModels, ProfileModels, PacingModels, ThemeModels, SessionModels, MetricModels, ProxyConfig, and the various display-format enums).
