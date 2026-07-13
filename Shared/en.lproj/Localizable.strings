@@ -410,7 +410,6 @@
 "settings.display.reset.confirm" = "Reset all display settings?";
 "settings.popover.reset.confirm" = "Reset all popover settings?";
 "settings.notifications.reset.confirm" = "Reset all notification toggles?";
-"settings.performance.reset.confirm" = "Reset all performance settings?";
 "theme.default" = "Default";
 "theme.monochrome" = "Monochrome";
 "theme.neon" = "Neon";
@@ -489,12 +488,6 @@
 "settings.smartColor.profile.balanced.hint" = "Default tuning.";
 "settings.smartColor.profile.vigilant.hint" = "Reads early signals as risk.";
 
-/* Performance */
-"sidebar.performance" = "Performance";
-"settings.performance.description" = "If TokenEater uses too much CPU, disable resource-heavy features here.";
-"settings.performance.dashboard" = "Dashboard";
-"settings.performance.gradient" = "Animated gradient";
-
 /* Sidebar */
 "sidebar.dashboard" = "Dashboard";
 "sidebar.stats" = "Stats";
@@ -551,7 +544,6 @@
 /* Section subtitles */
 "sidebar.display.subtitle" = "Choose which metrics appear in the menu bar and how they look.";
 "sidebar.themes.subtitle" = "Colours and visual style.";
-"sidebar.performance.subtitle" = "Fine-tune CPU usage by disabling features you don't need.";
 "sidebar.settings.subtitle" = "Proxy, refresh interval, and other global preferences.";
 "popover.settings.preview" = "Preview";
 "popover.settings.reset" = "Reset to defaults";
