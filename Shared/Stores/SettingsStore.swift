@@ -273,16 +273,13 @@ final class SettingsStore: ObservableObject {
 
     private let notificationService: NotificationServiceProtocol
     private let tokenProvider: TokenProviderProtocol
-    private let sharedFileService: SharedFileServiceProtocol
 
     init(
         notificationService: NotificationServiceProtocol = NotificationService(),
-        tokenProvider: TokenProviderProtocol = TokenProvider(),
-        sharedFileService: SharedFileServiceProtocol = SharedFileService()
+        tokenProvider: TokenProviderProtocol = TokenProvider()
     ) {
         self.notificationService = notificationService
         self.tokenProvider = tokenProvider
-        self.sharedFileService = sharedFileService
 
         self.pacing = PacingSettingsStore()
         self.notification = NotificationSettingsStore()
