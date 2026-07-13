@@ -124,11 +124,17 @@ struct MenuBarSectionView: View {
             sonnetResetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
             designResetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
             fableResetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
+            resetDisplayFormat: settingsStore.resetDisplayFormat,
             fiveHourReset: usageStore.fiveHourReset,
             sevenDayReset: usageStore.sevenDayReset,
             sonnetReset: usageStore.sonnetReset,
             designReset: usageStore.designReset,
             fableReset: usageStore.fableReset,
+            fiveHourResetAbsolute: usageStore.fiveHourResetAbsolute,
+            sevenDayResetAbsolute: usageStore.sevenDayResetAbsolute,
+            sonnetResetAbsolute: usageStore.sonnetResetAbsolute,
+            designResetAbsolute: usageStore.designResetAbsolute,
+            fableResetAbsolute: usageStore.fableResetAbsolute,
             sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
             sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
             weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
@@ -136,6 +142,7 @@ struct MenuBarSectionView: View {
             sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
             weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
             extraCreditsUsedMinorUnits: usageStore.extraUsage?.usedCredits ?? 0,
+            extraCreditsLimitMinorUnits: usageStore.extraUsage?.monthlyLimit ?? 0,
             extraCreditsCurrency: usageStore.extraUsage?.currency ?? "USD",
             outageActive: false,
             outageHealth: .healthy,
@@ -271,6 +278,12 @@ struct MenuBarSectionView: View {
 
     // MARK: - Display
 
+    /// True when any configured pin actually renders a countdown span, so the
+    /// format picker only appears when the choice has a visible effect.
+    private var anyPinShowsCountdown: Bool {
+        settingsStore.display.menuBarConfig.pinned.contains { $0.showCountdown || $0.id == .sessionReset }
+    }
+
     private var displaySection: some View {
         Section {
             Picker(String(localized: "settings.menubar.mode"), selection: $settingsStore.display.menuBarConfig.displayMode) {
@@ -284,6 +297,13 @@ struct MenuBarSectionView: View {
                     in: 1...60
                 ) {
                     Text("settings.menubar.rotateSeconds \(settingsStore.display.menuBarConfig.rotateSeconds)")
+                }
+            }
+            if anyPinShowsCountdown {
+                Picker(String(localized: "settings.menubar.countdownFormat"), selection: $settingsStore.display.resetDisplayFormat) {
+                    ForEach(ResetDisplayFormat.allCases) { format in
+                        Text(format.localizedLabel).tag(format)
+                    }
                 }
             }
         } header: {

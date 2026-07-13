@@ -157,11 +157,15 @@ private func makeRenderData(
     hasDesign: Bool = true,
     hasFable: Bool = true,
     hasExtraCredits: Bool = true,
+    resetDisplayFormat: ResetDisplayFormat = .relative,
+    fiveHourReset: String = "1h39",
+    fiveHourResetAbsolute: String = "20:30",
     sessionPacingDelta: Int = 0,
     sessionPacingZone: PacingZone = .onTrack,
     weeklyPacingDelta: Int = 0,
     weeklyPacingZone: PacingZone = .onTrack,
     extraCreditsUsedMinorUnits: Double = 4200,
+    extraCreditsLimitMinorUnits: Double = 500_000,
     extraCreditsCurrency: String = "USD",
     outageActive: Bool = false,
     outageHealth: VendorHealth = .healthy,
@@ -201,11 +205,17 @@ private func makeRenderData(
         sonnetResetDate: nil,
         designResetDate: nil,
         fableResetDate: nil,
-        fiveHourReset: "1h39",
-        sevenDayReset: "3d",
-        sonnetReset: "3d",
-        designReset: "3d",
-        fableReset: "3d",
+        resetDisplayFormat: resetDisplayFormat,
+        fiveHourReset: fiveHourReset,
+        sevenDayReset: "3d 14h",
+        sonnetReset: "3d 14h",
+        designReset: "3d 14h",
+        fableReset: "3d 14h",
+        fiveHourResetAbsolute: fiveHourResetAbsolute,
+        sevenDayResetAbsolute: "Thu 19:00",
+        sonnetResetAbsolute: "Thu 19:00",
+        designResetAbsolute: "Thu 19:00",
+        fableResetAbsolute: "Thu 19:00",
         sessionPacingDelta: sessionPacingDelta,
         sessionPacingZone: sessionPacingZone,
         weeklyPacingDelta: weeklyPacingDelta,
@@ -213,6 +223,7 @@ private func makeRenderData(
         sessionPacingDisplayMode: .dotDelta,
         weeklyPacingDisplayMode: .dotDelta,
         extraCreditsUsedMinorUnits: extraCreditsUsedMinorUnits,
+        extraCreditsLimitMinorUnits: extraCreditsLimitMinorUnits,
         extraCreditsCurrency: extraCreditsCurrency,
         outageActive: outageActive,
         outageHealth: outageHealth,
@@ -415,6 +426,38 @@ struct MenuBarBuildLineTests {
         )
         #expect(MenuBarRenderer.buildLine(data: data).length == 0)
     }
+
+    @Test("same countdown pin renders three distinct strings across the three formats")
+    func countdownHonorsResetDisplayFormat() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        func line(_ format: ResetDisplayFormat) -> String {
+            MenuBarRenderer.buildLine(data: makeRenderData(
+                pinned: [pin],
+                displayMode: .all,
+                fiveHourPct: 30,
+                resetDisplayFormat: format,
+                fiveHourReset: "1h39",
+                fiveHourResetAbsolute: "20:30"
+            )).string
+        }
+        #expect(line(.relative) == "30% 1h39")
+        #expect(line(.absolute) == "30% 20:30")
+        #expect(line(.both) == "30% 1h39 - 20:30")
+    }
+
+    @Test("countdown falls back to the available half when one side is empty in .both")
+    func countdownBothFallsBackWhenHalfEmpty() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        let data = makeRenderData(
+            pinned: [pin],
+            displayMode: .all,
+            fiveHourPct: 30,
+            resetDisplayFormat: .both,
+            fiveHourReset: "1h39",
+            fiveHourResetAbsolute: ""
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "30% 1h39")
+    }
 }
 
 @Suite("MenuBarRenderer.fixedWidthMeasurement")
@@ -466,6 +509,70 @@ struct MenuBarFixedWidthTests {
         )
         let naturalWidth = MenuBarRenderer.buildLine(data: data).size().width
         #expect(MenuBarRenderer.fixedWidthMeasurement(data: data) >= naturalWidth)
+    }
+
+    @Test("dollars pin: measurement is identical across live values and covers each rendered width")
+    func dollarsWorstCaseStableAcrossLiveValues() {
+        let pin = PinnedMetricConfig(id: .extraCredits, prefix: .none, value: .dollars)
+        // Whole-dollar amounts within the ceiling (limit $5,000 / "$8,888" floor).
+        let liveMinorUnits: [Double] = [0, 4200, 130_000, 420_000] // $0, $42, $1,300, $4,200
+        var measurements = Set<CGFloat>()
+        for used in liveMinorUnits {
+            let data = makeRenderData(
+                pinned: [pin],
+                displayMode: .all,
+                fixedWidth: true,
+                extraCreditsUsedMinorUnits: used,
+                extraCreditsLimitMinorUnits: 500_000
+            )
+            let measured = MenuBarRenderer.fixedWidthMeasurement(data: data)
+            #expect(measured >= MenuBarRenderer.buildLine(data: data).size().width, "used \(used)")
+            measurements.insert(measured)
+        }
+        #expect(measurements.count == 1)
+    }
+
+    @Test("dollars pin: a limit wider than the $8,888 floor raises the measurement")
+    func dollarsWorstCaseUsesLimitWhenWider() {
+        func measurement(limitMinorUnits: Double) -> CGFloat {
+            MenuBarRenderer.fixedWidthMeasurement(data: makeRenderData(
+                pinned: [.init(id: .extraCredits, prefix: .none, value: .dollars)],
+                displayMode: .all,
+                fixedWidth: true,
+                extraCreditsLimitMinorUnits: limitMinorUnits
+            ))
+        }
+        // $500 limit -> the "$8,888" floor governs; $150,000 limit -> "$150,000" governs.
+        #expect(measurement(limitMinorUnits: 15_000_000) > measurement(limitMinorUnits: 50_000))
+    }
+
+    @Test("countdown pin: measurement is identical across live countdown strings, per format")
+    func countdownWorstCaseStableAcrossLiveValues() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        let liveCountdowns: [(relative: String, absolute: String)] = [
+            ("1h05", "20:30"), ("25min", "08:00"), ("4h44", "23:59"), ("now", "09:15"),
+        ]
+        for format in ResetDisplayFormat.allCases {
+            var measurements = Set<CGFloat>()
+            for live in liveCountdowns {
+                let data = makeRenderData(
+                    pinned: [pin],
+                    displayMode: .all,
+                    fixedWidth: true,
+                    fiveHourPct: 42,
+                    resetDisplayFormat: format,
+                    fiveHourReset: live.relative,
+                    fiveHourResetAbsolute: live.absolute
+                )
+                let measured = MenuBarRenderer.fixedWidthMeasurement(data: data)
+                #expect(
+                    measured >= MenuBarRenderer.buildLine(data: data).size().width,
+                    "format \(format.rawValue), countdown \(live.relative)/\(live.absolute)"
+                )
+                measurements.insert(measured)
+            }
+            #expect(measurements.count == 1, "format \(format.rawValue)")
+        }
     }
 }
 

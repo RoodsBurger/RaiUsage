@@ -43,13 +43,25 @@ enum MenuBarRenderer {
         let designResetDate: Date?
         let fableResetDate: Date?
 
-        /// Relative countdown text ("1h39", ...), appended after the value
-        /// when a pin's `showCountdown` is on.
+        /// User's countdown presentation (relative / absolute / both) for
+        /// every `showCountdown` span.
+        let resetDisplayFormat: ResetDisplayFormat
+
+        /// Relative countdown text ("1h39", "3d 14h", ...), appended after
+        /// the value when a pin's `showCountdown` is on.
         let fiveHourReset: String
         let sevenDayReset: String
         let sonnetReset: String
         let designReset: String
         let fableReset: String
+
+        /// Absolute countdown text ("20:30", "Thu 19:00", ...), the second
+        /// half of the `.absolute` / `.both` formats.
+        let fiveHourResetAbsolute: String
+        let sevenDayResetAbsolute: String
+        let sonnetResetAbsolute: String
+        let designResetAbsolute: String
+        let fableResetAbsolute: String
 
         let sessionPacingDelta: Int
         let sessionPacingZone: PacingZone
@@ -60,8 +72,9 @@ enum MenuBarRenderer {
 
         /// Extra Credits pool usage in the currency's minor unit (e.g. cents),
         /// formatted through `CurrencyFormatter` when a pin's value style is
-        /// `.dollars`.
+        /// `.dollars`. The monthly limit feeds the fixed-width worst case.
         let extraCreditsUsedMinorUnits: Double
+        let extraCreditsLimitMinorUnits: Double
         let extraCreditsCurrency: String
 
         // Outage badge - set by StatusBarController from VendorStatusStore.
@@ -366,15 +379,15 @@ enum MenuBarRenderer {
     private static func buildSingle(_ pin: PinnedMetricConfig, data: RenderData, worstCase: Bool) -> NSAttributedString {
         switch pin.id {
         case .fiveHour:
-            return buildPercentMetric(pin, pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), countdown: data.fiveHourReset, data: data, worstCase: worstCase)
+            return buildPercentMetric(pin, pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), relative: data.fiveHourReset, absolute: data.fiveHourResetAbsolute, data: data, worstCase: worstCase)
         case .sevenDay:
-            return buildPercentMetric(pin, pct: data.sevenDayPct, resetDate: data.sevenDayResetDate, windowDuration: windowDuration(for: .sevenDay), countdown: data.sevenDayReset, data: data, worstCase: worstCase)
+            return buildPercentMetric(pin, pct: data.sevenDayPct, resetDate: data.sevenDayResetDate, windowDuration: windowDuration(for: .sevenDay), relative: data.sevenDayReset, absolute: data.sevenDayResetAbsolute, data: data, worstCase: worstCase)
         case .sonnet:
-            return buildPercentMetric(pin, pct: data.sonnetPct, resetDate: data.sonnetResetDate, windowDuration: windowDuration(for: .sonnet), countdown: data.sonnetReset, data: data, worstCase: worstCase)
+            return buildPercentMetric(pin, pct: data.sonnetPct, resetDate: data.sonnetResetDate, windowDuration: windowDuration(for: .sonnet), relative: data.sonnetReset, absolute: data.sonnetResetAbsolute, data: data, worstCase: worstCase)
         case .design:
-            return buildPercentMetric(pin, pct: data.designPct, resetDate: data.designResetDate, windowDuration: windowDuration(for: .design), countdown: data.designReset, data: data, worstCase: worstCase)
+            return buildPercentMetric(pin, pct: data.designPct, resetDate: data.designResetDate, windowDuration: windowDuration(for: .design), relative: data.designReset, absolute: data.designResetAbsolute, data: data, worstCase: worstCase)
         case .fable:
-            return buildPercentMetric(pin, pct: data.fablePct, resetDate: data.fableResetDate, windowDuration: windowDuration(for: .fable), countdown: data.fableReset, data: data, worstCase: worstCase)
+            return buildPercentMetric(pin, pct: data.fablePct, resetDate: data.fableResetDate, windowDuration: windowDuration(for: .fable), relative: data.fableReset, absolute: data.fableResetAbsolute, data: data, worstCase: worstCase)
         case .extraCredits:
             return buildExtraCreditsMetric(pin, data: data, worstCase: worstCase)
         case .sessionPacing:
@@ -388,15 +401,22 @@ enum MenuBarRenderer {
         }
     }
 
+    private static let countdownAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
+        .foregroundColor: NSColor.secondaryLabelColor,
+    ]
+
     /// `label + value%` for a simple percentage metric (5h/7d/Sonnet/Design/
-    /// Fable). `worstCase` forces the value to "100" - the widest a percent
-    /// value can ever render - for `fixedWidthMeasurement`.
+    /// Fable), plus an optional countdown span honoring `resetDisplayFormat`.
+    /// `worstCase` (for `fixedWidthMeasurement`) forces the value to "100" and
+    /// the countdown to the widest string the active format can produce.
     private static func buildPercentMetric(
         _ pin: PinnedMetricConfig,
         pct: Int,
         resetDate: Date?,
         windowDuration: TimeInterval,
-        countdown: String,
+        relative: String,
+        absolute: String,
         data: RenderData,
         worstCase: Bool
     ) -> NSAttributedString {
@@ -417,13 +437,42 @@ enum MenuBarRenderer {
             .foregroundColor: color,
         ]))
 
-        if pin.showCountdown, !countdown.isEmpty {
-            str.append(NSAttributedString(string: " \(countdown)", attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
+        if pin.showCountdown {
+            let text = worstCase
+                ? worstCaseCountdownText(format: data.resetDisplayFormat, windowDuration: windowDuration)
+                : ResetCountdownFormatter.display(relative: relative, absolute: absolute, format: data.resetDisplayFormat)
+            if !text.isEmpty {
+                str.append(NSAttributedString(string: " \(text)", attributes: countdownAttributes))
+            }
         }
         return str
+    }
+
+    /// The widest string the given `ResetDisplayFormat` can produce for the
+    /// pin's window, in placeholder digits, so the fixed-width slot never
+    /// shrinks as the live countdown drains.
+    private static func worstCaseCountdownText(format: ResetDisplayFormat, windowDuration: TimeInterval) -> String {
+        let isSession = windowDuration <= 5 * 3600
+        // Candidate sets mirror ResetCountdownFormatter's output shapes:
+        // session relative "1h25"/"25min", weekly relative "3d 14h"/"14h 05";
+        // absolute "20:30" same-day, "Thu 19:00" cross-day, weekly "Apr 24 19:00".
+        let relativeCandidates = isSession ? ["8h88", "88min"] : ["88min", "88h 88", "8d 88h"]
+        let absoluteCandidates = isSession ? ["88:88", "Wed 88:88"] : ["88:88", "Wed 88:88", "May 88 88:88"]
+        switch format {
+        case .relative: return widest(relativeCandidates, attributes: countdownAttributes)
+        case .absolute: return widest(absoluteCandidates, attributes: countdownAttributes)
+        case .both:
+            let rel = widest(relativeCandidates, attributes: countdownAttributes)
+            let abs = widest(absoluteCandidates, attributes: countdownAttributes)
+            return "\(rel) - \(abs)"
+        }
+    }
+
+    private static func widest(_ candidates: [String], attributes: [NSAttributedString.Key: Any]) -> String {
+        candidates.max { lhs, rhs in
+            (lhs as NSString).size(withAttributes: attributes).width
+                < (rhs as NSString).size(withAttributes: attributes).width
+        } ?? ""
     }
 
     /// Extra Credits is the only metric `.dollars` renders for; any other
@@ -433,25 +482,36 @@ enum MenuBarRenderer {
         appendPrefix(pin, to: str, data: data)
 
         let color = metricColor(pct: data.extraCreditsPct, resetDate: nil, windowDuration: 0, data: data)
+        let valueAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: color,
+        ]
         let text: String
         switch pin.value {
         case .dollars:
-            text = worstCase
-                ? "$100"
-                : CurrencyFormatter.formatMinorUnits(
+            if worstCase {
+                // Ceiling: the pool's own formatted monthly limit, floored at
+                // "$8,888" (comma + four digits) so the slot covers realistic
+                // balances even when the limit is small or unset.
+                let limitText = CurrencyFormatter.formatMinorUnits(
+                    data.extraCreditsLimitMinorUnits,
+                    currencyCode: data.extraCreditsCurrency,
+                    locale: Locale(identifier: "en_US")
+                )
+                text = widest([limitText, "$8,888"], attributes: valueAttributes)
+            } else {
+                text = CurrencyFormatter.formatMinorUnits(
                     data.extraCreditsUsedMinorUnits,
                     currencyCode: data.extraCreditsCurrency,
                     locale: Locale(identifier: "en_US")
                 )
+            }
         case .percentRemaining:
             text = "\(worstCase ? 100 : max(0, 100 - data.extraCreditsPct))%"
         case .percentUsed:
             text = "\(worstCase ? 100 : data.extraCreditsPct)%"
         }
-        str.append(NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: color,
-        ]))
+        str.append(NSAttributedString(string: text, attributes: valueAttributes))
         return str
     }
 
@@ -529,7 +589,12 @@ enum MenuBarRenderer {
     /// exists so the switch stays exhaustive if a config is ever decoded with
     /// that id; it renders countdown text alone, no value.
     private static func buildCountdownOnly(data: RenderData) -> NSAttributedString {
-        let text = data.fiveHourReset.isEmpty ? "-" : data.fiveHourReset
+        let resolved = ResetCountdownFormatter.display(
+            relative: data.fiveHourReset,
+            absolute: data.fiveHourResetAbsolute,
+            format: data.resetDisplayFormat
+        )
+        let text = resolved.isEmpty ? "-" : resolved
         let color = metricColor(pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), data: data)
         return NSAttributedString(string: text, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),

@@ -524,6 +524,7 @@
 "settings.menubar.mode.highestRisk" = "Highest risk";
 "settings.menubar.mode.rotate" = "Rotate";
 "settings.menubar.rotateSeconds %lld" = "Rotate every %lld s";
+"settings.menubar.countdownFormat" = "Countdown format";
 
 /* Menu bar engine - appearance */
 "settings.menubar.appearance" = "Appearance";
