@@ -43,10 +43,6 @@ targets:
           - CFBundleURLName: com.tokeneater.app
             CFBundleURLSchemes:
               - tokeneater
-    preBuildScripts:
-      - script: |
-          osacompile -o "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/TokenEaterInstaller.app" "$SRCROOT/TokenEaterApp/Resources/installer.applescript"
-        name: Compile installer applets
 
   TokenEaterTests:
     type: bundle.unit-test

@@ -5,7 +5,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var usageStore: UsageStore!
     var themeStore: ThemeStore!
     var settingsStore: SettingsStore!
-    var updateStore: UpdateStore!
     var sessionStore: SessionStore!
     var vendorStatusStore: VendorStatusStore!
 
@@ -39,7 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             usageStore: usageStore,
             themeStore: themeStore,
             settingsStore: settingsStore,
-            updateStore: updateStore,
             sessionStore: sessionStore,
             vendorStatusStore: vendorStatusStore
         )
@@ -53,9 +51,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sessionStore: sessionStore,
             settingsStore: settingsStore
         )
-
-        updateStore.checkBrewMigration()
-        updateStore.checkForUpdates()
 
         monitorCancellable = settingsStore.overlay.$overlayEnabled
             .dropFirst()
@@ -93,7 +88,6 @@ struct TokenEaterApp: App {
     private let usageStore: UsageStore
     private let themeStore: ThemeStore
     private let settingsStore: SettingsStore
-    private let updateStore: UpdateStore
     private let sessionStore: SessionStore
     private let vendorStatusStore: VendorStatusStore
 
@@ -106,7 +100,6 @@ struct TokenEaterApp: App {
         self.usageStore = UsageStore()
         self.themeStore = ThemeStore()
         self.settingsStore = SettingsStore()
-        self.updateStore = UpdateStore()
         self.sessionStore = SessionStore()
         self.vendorStatusStore = VendorStatusStore()
 
@@ -114,7 +107,6 @@ struct TokenEaterApp: App {
         appDelegate.usageStore = usageStore
         appDelegate.themeStore = themeStore
         appDelegate.settingsStore = settingsStore
-        appDelegate.updateStore = updateStore
         appDelegate.sessionStore = sessionStore
         appDelegate.vendorStatusStore = vendorStatusStore
     }

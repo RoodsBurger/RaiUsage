@@ -17,7 +17,6 @@ final class StatusBarController: NSObject {
     private let usageStore: UsageStore
     private let themeStore: ThemeStore
     private let settingsStore: SettingsStore
-    private let updateStore: UpdateStore
     private let sessionStore: SessionStore
     private let vendorStatusStore: VendorStatusStore
     private let tokenFileMonitor: TokenFileMonitorProtocol
@@ -26,7 +25,6 @@ final class StatusBarController: NSObject {
         usageStore: UsageStore,
         themeStore: ThemeStore,
         settingsStore: SettingsStore,
-        updateStore: UpdateStore,
         sessionStore: SessionStore,
         vendorStatusStore: VendorStatusStore,
         tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
@@ -34,7 +32,6 @@ final class StatusBarController: NSObject {
         self.usageStore = usageStore
         self.themeStore = themeStore
         self.settingsStore = settingsStore
-        self.updateStore = updateStore
         self.sessionStore = sessionStore
         self.vendorStatusStore = vendorStatusStore
         self.tokenFileMonitor = tokenFileMonitor
@@ -98,7 +95,6 @@ final class StatusBarController: NSObject {
             .environmentObject(usageStore)
             .environmentObject(themeStore)
             .environmentObject(settingsStore)
-            .environmentObject(updateStore)
             .environmentObject(vendorStatusStore)
         popover.contentViewController = NSHostingController(rootView: popoverView)
     }
@@ -477,14 +473,6 @@ final class StatusBarController: NSObject {
         settingsItem.submenu = settingsSub
         menu.addItem(settingsItem)
 
-        let updates = NSMenuItem(
-            title: String(localized: "contextmenu.updates"),
-            action: #selector(contextCheckUpdates),
-            keyEquivalent: ""
-        )
-        updates.target = self
-        menu.addItem(updates)
-
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -524,10 +512,6 @@ final class StatusBarController: NSObject {
             object: nil,
             userInfo: ["section": raw]
         )
-    }
-
-    @objc private func contextCheckUpdates() {
-        updateStore.checkForUpdates()
     }
 
     @objc private func contextQuit() {
@@ -606,7 +590,6 @@ final class StatusBarController: NSObject {
             .environmentObject(usageStore)
             .environmentObject(themeStore)
             .environmentObject(settingsStore)
-            .environmentObject(updateStore)
             .environmentObject(sessionStore)
             .environmentObject(vendorStatusStore)
 
