@@ -494,8 +494,6 @@
 "settings.performance.description" = "If TokenEater uses too much CPU, disable resource-heavy features here.";
 "settings.performance.dashboard" = "Dashboard";
 "settings.performance.gradient" = "Animated gradient";
-"settings.performance.monitor" = "Session Monitor";
-"settings.performance.monitor.toggle" = "Session detection";
 
 /* Sidebar */
 "sidebar.dashboard" = "Dashboard";

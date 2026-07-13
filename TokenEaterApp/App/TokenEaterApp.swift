@@ -18,11 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Clean up the v4.x LaunchAgent helper on first launch after upgrade.
-        // Idempotent + gated by a UserDefaults flag, so this is effectively a
-        // no-op for fresh installs and for subsequent launches of upgraded users.
-        LegacyHelperCleanupService().runIfNeeded()
-
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleGetURL(_:withReplyEvent:)),
@@ -49,11 +44,6 @@ struct TokenEaterApp: App {
     private let vendorStatusStore: VendorStatusStore
 
     init() {
-        // Migrate v4.x sandbox-container UserDefaults into the real path BEFORE
-        // any store is constructed - store inits read UserDefaults.standard, so
-        // missing this step would make every upgrading user land on onboarding.
-        LegacyHelperCleanupService().migratePrefsIfNeeded()
-
         self.usageStore = UsageStore()
         self.themeStore = ThemeStore()
         self.settingsStore = SettingsStore()

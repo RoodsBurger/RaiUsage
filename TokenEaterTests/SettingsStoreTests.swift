@@ -100,22 +100,6 @@ struct SettingsStoreTests {
         #expect(!store.pinnedMetrics.contains(.weeklyPacing))
     }
 
-    @Test("legacy 'pacing' pin migrates to weeklyPacing on load")
-    func legacyPacingMigrates() {
-        cleanDefaults()
-        defer { cleanDefaults() }
-        // Seed the legacy value after the cleanup so it survives SettingsStore init.
-        UserDefaults.standard.set(["fiveHour", "pacing"], forKey: "pinnedMetrics")
-
-        let store = SettingsStore(
-            notificationService: MockNotificationService(),
-            tokenProvider: MockTokenProvider()
-        )
-        #expect(store.pinnedMetrics.contains(.weeklyPacing))
-        #expect(store.pinnedMetrics.contains(.fiveHour))
-        #expect(!store.pinnedMetrics.contains(where: { $0.rawValue == "pacing" }))
-    }
-
     // MARK: - Credentials delegation
 
     @Test("credentialsTokenExists delegates to token provider")
