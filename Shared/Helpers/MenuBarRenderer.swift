@@ -230,8 +230,8 @@ enum MenuBarRenderer {
 
     /// The `RiskZone` a percent-based metric currently sits in, independent of
     /// `colorMode` - used both for `highestRisk` selection and for the
-    /// `.risk`-mode dot color. Text itself no longer carries risk color (see
-    /// `textColor`); this is the single place a metric's zone is resolved.
+    /// `.risk`-mode dot color. The single place a metric's zone is resolved;
+    /// text color comes from `textColor`, the dot from `appendDot`.
     private static func metricZone(pct: Int, resetDate: Date?, windowDuration: TimeInterval, data: RenderData) -> RiskZone {
         GaugeColorResolver.zone(
             mode: GaugeColorResolver.mode(smartColorEnabled: data.smartColorEnabled, windowDuration: windowDuration),
@@ -247,7 +247,7 @@ enum MenuBarRenderer {
     /// Adaptive text color for every metric's label/value/separator/countdown
     /// - near-white on a dark menu bar, near-black on a light one, so text
     /// stays legible over whatever wallpaper shows through the translucent
-    /// bar. Risk color moved to `appendDot`; this never varies with `colorMode`.
+    /// bar. Risk color lives in `appendDot`; this never varies with `colorMode`.
     private static func textColor(_ data: RenderData) -> NSColor {
         data.menuBarIsDark ? DS.Pastel.NS.textOnDark : DS.Pastel.NS.textOnLight
     }

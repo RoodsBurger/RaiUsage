@@ -226,8 +226,8 @@ extension DS {
             static let blueDeep  = NSColor(hex: 0x5B82D6)
 
             /// Adaptive menu bar text - near-white on a dark bar, near-black
-            /// on a light one. Replaces per-metric risk-colored text; the
-            /// risk signal moves to `RiskZone.dotColor`/`PacingZone.dotColor`.
+            /// on a light one. The risk signal lives in the dot
+            /// (`RiskZone.dotColor`/`PacingZone.dotColor`), not the text.
             static let textOnDark  = NSColor(hex: 0xF4F4F6)
             static let textOnLight = NSColor(hex: 0x1C1C1E)
         }
