@@ -52,4 +52,11 @@ enum EnterprisePresentation {
     static func showsSevenDayActivityTile(planType: PlanType, bucket: UsageBucket?) -> Bool {
         planType == .enterprise && !isTracked(bucket)
     }
+
+    /// The dashboard's bottom TIER chip: enterprise orgs report a meaningless
+    /// rate-limit tier ("Zero"), so the chip is dropped there. Every other
+    /// plan keeps it (still gated on the tier being present at all).
+    static func showsTierChip(planType: PlanType) -> Bool {
+        planType != .enterprise
+    }
 }

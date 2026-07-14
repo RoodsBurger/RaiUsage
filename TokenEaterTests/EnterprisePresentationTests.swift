@@ -139,6 +139,16 @@ struct EnterprisePresentationTests {
             }
         }
     }
+
+    // MARK: - Tier chip
+
+    @Test("TIER chip hides on enterprise only; every other plan keeps it")
+    func tierChipHidesOnEnterprise() {
+        #expect(EnterprisePresentation.showsTierChip(planType: .enterprise) == false)
+        for plan in nonEnterprisePlans {
+            #expect(EnterprisePresentation.showsTierChip(planType: plan) == true, "\(plan)")
+        }
+    }
 }
 
 /// Enterprise-aware Extra Credits labels (menu bar prefix + display label).

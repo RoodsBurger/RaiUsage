@@ -906,7 +906,11 @@ struct MonitoringView: View {
 
     private var footerPills: some View {
         HStack(spacing: DS.Spacing.xs) {
-            if let tier = usageStore.rateLimitTier {
+            // Enterprise orgs report a meaningless tier ("Zero"), so the TIER
+            // chip drops there - see EnterprisePresentation.showsTierChip.
+            // The ORGANIZATION chip stays on every plan.
+            if EnterprisePresentation.showsTierChip(planType: usageStore.planType),
+               let tier = usageStore.rateLimitTier {
                 statusPill(icon: "sparkles", label: String(localized: "dashboard.tier"), value: tier.formattedRateLimitTier, tint: DS.Pastel.green)
             }
             if let org = usageStore.organizationName {
