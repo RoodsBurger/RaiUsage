@@ -40,7 +40,11 @@ struct TokenEaterApp: App {
     private let vendorStatusStore: VendorStatusStore
 
     init() {
-        self.usageStore = UsageStore()
+        let tokenProvider = TokenProvider(
+            oauthService: OAuthService(),
+            oauthTokenStore: OAuthTokenStore()
+        )
+        self.usageStore = UsageStore(tokenProvider: tokenProvider)
         self.settingsStore = SettingsStore()
         self.vendorStatusStore = VendorStatusStore()
 

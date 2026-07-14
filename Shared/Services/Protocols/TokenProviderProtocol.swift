@@ -14,4 +14,7 @@ protocol TokenProviderProtocol: Sendable {
     func refreshTokenIfChanged() -> Bool
     var isBootstrapped: Bool { get }
     func bootstrap() throws
+    /// Signs out of the app-owned OAuth tokens and clears the cache, so the
+    /// next `currentToken()` falls back to the borrowed source chain.
+    func disconnectOAuth()
 }
