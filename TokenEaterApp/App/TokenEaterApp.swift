@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsStore: SettingsStore!
     var vendorStatusStore: VendorStatusStore!
     var activityStore: ActivityStore!
+    var updateStore: UpdateStore!
 
     private var statusBarController: StatusBarController?
 
@@ -28,8 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             usageStore: usageStore,
             settingsStore: settingsStore,
             vendorStatusStore: vendorStatusStore,
-            activityStore: activityStore
+            activityStore: activityStore,
+            updateStore: updateStore
         )
+        updateStore.startAutoCheck()
     }
 }
 
@@ -41,6 +44,7 @@ struct RaiUsageApp: App {
     private let settingsStore: SettingsStore
     private let vendorStatusStore: VendorStatusStore
     private let activityStore: ActivityStore
+    private let updateStore: UpdateStore
 
     init() {
         let tokenProvider = TokenProvider(
@@ -51,12 +55,14 @@ struct RaiUsageApp: App {
         self.settingsStore = SettingsStore()
         self.vendorStatusStore = VendorStatusStore()
         self.activityStore = ActivityStore()
+        self.updateStore = UpdateStore()
 
         NotificationService().setupDelegate()
         appDelegate.usageStore = usageStore
         appDelegate.settingsStore = settingsStore
         appDelegate.vendorStatusStore = vendorStatusStore
         appDelegate.activityStore = activityStore
+        appDelegate.updateStore = updateStore
     }
 
     var body: some Scene {

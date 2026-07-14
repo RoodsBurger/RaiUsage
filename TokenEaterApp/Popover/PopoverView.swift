@@ -12,6 +12,7 @@ struct PopoverView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var vendorStatusStore: VendorStatusStore
     @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var updateStore: UpdateStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +39,13 @@ struct PopoverView: View {
             if popoverConfig.showSpend, let extra = usageStore.extraUsage, extra.isEnabled {
                 separator
                 PopoverSpendSection(extra: extra)
+            }
+
+            // One-line hint only while a newer release is known - install and
+            // release notes live in Settings > General, not here.
+            if case .available(let info) = updateStore.state {
+                separator
+                PopoverUpdateHintRow(version: info.version)
             }
 
             // Unconditional: the footer always gets a separator above it,
@@ -565,6 +573,44 @@ private struct PopoverTimestampLabel: View {
         if let date = usageStore.lastUpdate {
             lastUpdateText = date.formatted(.relative(presentation: .named))
         }
+    }
+}
+
+// MARK: - Update hint
+
+/// Quiet one-liner above the footer while an update is available; clicking
+/// it opens the dashboard's General settings pane where the installer lives.
+/// Caption text + tinted icon only - no badge, no button chrome.
+private struct PopoverUpdateHintRow: View {
+    let version: String
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(
+                name: .openDashboard,
+                object: nil,
+                userInfo: ["section": "settings.general"]
+            )
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DS.Pastel.blue)
+                Text(String(format: String(localized: "popover.update.available"), version))
+                    .font(.caption)
+                    .foregroundStyle(hovering ? .primary : .secondary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

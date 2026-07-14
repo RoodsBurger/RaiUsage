@@ -509,3 +509,22 @@
 "notif.body.fable.red.fallback" = "Fable pool almost out";
 "notif.body.fable.green" = "Fable refilled at %@";
 "notif.body.fable.green.fallback" = "Fable refilled, you're back";
+
+/* MARK: - In-app updater */
+
+"settings.updates.title" = "Updates";
+"settings.updates.current" = "Current version";
+"settings.updates.check" = "Check for updates";
+"settings.updates.uptodate" = "You're up to date.";
+"settings.updates.available" = "Version %@ is available.";
+"settings.updates.install" = "Install update";
+"settings.updates.notes" = "View release notes";
+"settings.updates.downloading" = "Downloading update…";
+"settings.updates.installing" = "Installing… RaiUsage will relaunch.";
+"settings.updates.failed" = "Update failed: %@";
+"popover.update.available" = "Update available — v%@";
+"update.error.badresponse" = "GitHub returned an unexpected response.";
+"update.error.noasset" = "The latest release has no DMG to download.";
+"update.error.download" = "Download failed (%@).";
+"update.error.noappindmg" = "No app bundle found inside the update DMG.";
+"update.error.command" = "%@ failed: %@";

@@ -41,6 +41,7 @@ final class StatusBarController: NSObject {
     private let settingsStore: SettingsStore
     private let vendorStatusStore: VendorStatusStore
     private let activityStore: ActivityStore
+    private let updateStore: UpdateStore
     private let tokenFileMonitor: TokenFileMonitorProtocol
 
     init(
@@ -48,12 +49,14 @@ final class StatusBarController: NSObject {
         settingsStore: SettingsStore,
         vendorStatusStore: VendorStatusStore,
         activityStore: ActivityStore,
+        updateStore: UpdateStore,
         tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
     ) {
         self.usageStore = usageStore
         self.settingsStore = settingsStore
         self.vendorStatusStore = vendorStatusStore
         self.activityStore = activityStore
+        self.updateStore = updateStore
         self.tokenFileMonitor = tokenFileMonitor
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.statusItem.isVisible = settingsStore.showMenuBar
@@ -171,6 +174,7 @@ final class StatusBarController: NSObject {
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
             .environmentObject(activityStore)
+            .environmentObject(updateStore)
             // Tint the vibrancy material toward the app's elevated-card color
             // so the popover matches the dashboard surfaces instead of the
             // material's neutral gray; sub-1.0 alpha keeps a hint of the
@@ -205,7 +209,10 @@ final class StatusBarController: NSObject {
             usageStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             settingsStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             vendorStatusStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            activityStore.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+            activityStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            // Update state feeds the popover's hint row - keeps the open
+            // panel resized when the row appears/disappears.
+            updateStore.objectWillChange.map { _ in () }.eraseToAnyPublisher()
         )
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
@@ -700,6 +707,7 @@ final class StatusBarController: NSObject {
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
             .environmentObject(activityStore)
+            .environmentObject(updateStore)
 
         let isOnboarding = !settingsStore.hasCompletedOnboarding
         let onboardingSize = NSSize(

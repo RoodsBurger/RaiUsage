@@ -32,9 +32,9 @@ Two targets:
 `Shared/` is compiled into both targets:
 
 - `Shared/Models/` - pure `Codable` structs and enums (UsageModels, ProfileModels, PacingModels, MetricModels, OAuthModels, VendorStatusModels, ProxyConfig, and the various display-format enums).
-- `Shared/Services/` - protocol-backed I/O. 13 services, most with a protocol in `Shared/Services/Protocols/` and a mock in `TokenEaterTests/Mocks/`.
+- `Shared/Services/` - protocol-backed I/O. 15 services, most with a protocol in `Shared/Services/Protocols/` and a mock in `TokenEaterTests/Mocks/`.
 - `Shared/Repositories/` - `UsageRepository` (orchestrates `APIClient` then `SharedFileService`).
-- `Shared/Stores/` - 8 `ObservableObject` state containers.
+- `Shared/Stores/` - 10 `ObservableObject` state containers.
 - `Shared/Helpers/` - 15 pure enums/structs, no I/O (PacingCalculator, MenuBarRenderer, SmartColor, GaugeColorResolver, ChartDomainCalculator, CurrencyFormatter, TokenFormatter, MetricsGridLayout, NotificationBodyFormatter, DiagnosticReporter, ResetCountdownFormatter, RateLimitBackoff, ProcessResolver, PKCE, OAuthErrorFormatter).
 - `Shared/Components/` - 5 reusable SwiftUI views (RingGauge, PacingBar, HourRangeSlider, OffDayHatch, WorkweekBadge).
 - `Shared/Design/DesignTokens.swift` - the `DS` design-token namespace plus a `View` extension.
@@ -82,7 +82,7 @@ Auth has two modes: the app's own "Sign in with Claude" OAuth login (`OAuthServi
 - `Shared/Repositories/UsageRepository.swift` - API to shared-file pipeline.
 - `TokenEaterApp/App/StatusBarController.swift` - menu bar item and popover hosting.
 
-### The 8 stores
+### The 10 stores
 
 All are `@MainActor final class ...: ObservableObject`.
 
@@ -94,6 +94,8 @@ All are `@MainActor final class ...: ObservableObject`.
 | `NotificationSettingsStore` | Notification opt-ins and thresholds. |
 | `PacingSettingsStore` | Workweek-pacing preferences (work hours, off days, targets). |
 | `VendorStatusStore` | Claude service-status / outage monitoring (via `StatusService`); powers the vendor-status banner. |
+| `ActivityStore` | History-derived activity buckets (5h/7d token + session counts) for enterprise surfaces; `warmIfStale` bounds the JSONL scans. |
+| `UpdateStore` | In-app updater pipeline: throttled auto-check against GitHub Releases, manual check, download -> install -> relaunch. |
 | `HistoryStore` | Drives the History view (range + model filter, buckets via `SessionHistoryService`). |
 | `MonitoringInsightsStore` | Lightweight 7-day buckets and previous-week delta for the Monitoring homepage. |
 
@@ -111,6 +113,7 @@ All are `@MainActor final class ...: ObservableObject`.
 | Pacing | `Helpers/PacingCalculator.swift`, `Settings/PacingSectionView.swift`, `Models/PacingModels.swift`, `Components/PacingBar.swift` |
 | Notifications | `Services/NotificationService.swift`, `Helpers/NotificationBodyFormatter.swift`, `Settings/NotificationsSectionView.swift` |
 | Vendor status / outages | `Stores/VendorStatusStore.swift`, `Services/StatusService.swift`, `Models/VendorStatusModels.swift`, `Popover/VendorStatusBanner.swift` |
+| In-app updater | `Services/UpdateChecker.swift`, `Services/UpdateInstaller.swift`, `Stores/UpdateStore.swift`, `Helpers/UpdateVersion.swift`, the Updates section in `Settings/SettingsSectionView.swift` |
 | Onboarding | `Onboarding/OnboardingHeroView.swift`, `Onboarding/OnboardingViewModel.swift` |
 | Settings | `Settings/SettingsSectionView.swift`, `Settings/MenuBarSectionView.swift`, `Settings/PopoverSectionView.swift`, `Settings/SettingsSectionHelpers.swift` |
 | Token / auth | `Services/TokenProvider.swift`, `SecurityCLIReader.swift`, `CredentialsFileReader.swift`, `ClaudeConfigReader.swift`, `ElectronDecryptionService.swift`, `OAuthService.swift`, `OAuthTokenStore.swift`, `TokenFileMonitor.swift` |
@@ -138,7 +141,7 @@ Prerequisites: macOS 14+, XcodeGen (`brew install xcodegen`), and Xcode (see the
 
 ### Unit tests
 
-The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 581 `@Test` cases across 49 files (recompute with `grep -rho '@Test' TokenEaterTests --include='*.swift' | wc -l`). Mocks live in `TokenEaterTests/Mocks/` (one protocol-based mock per service), fixtures in `TokenEaterTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
+The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 685 `@Test` cases across 55 files (recompute with `grep -rho '@Test' TokenEaterTests --include='*.swift' | wc -l`). Mocks live in `TokenEaterTests/Mocks/` (one protocol-based mock per service), fixtures in `TokenEaterTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
 
 Run the tests (identical to CI):
 
@@ -198,7 +201,8 @@ The `xattr -cr` above is only for ad-hoc local builds. Official release DMGs are
 ## Signing, notarization, and release
 
 - **Local Release builds** use `CODE_SIGN_STYLE: Automatic` with the hardcoded team, so they are signed ad-hoc / with the local Apple Development identity and are not notarized. Gatekeeper blocks the first launch.
-- **In-repo automation is CI only.** The single `.github/workflows/ci.yml` workflow builds Release and runs the tests on every PR and every push to `main`. There is no release/notarization workflow, appcast, or Sparkle in-app updater in the tree.
+- **In-repo automation.** `ci.yml` builds Release and runs the tests on every PR and every push to `main`; `release.yml` packages an ad-hoc-signed `RaiUsage-vX.Y.Z.dmg` on every `v*` tag push and publishes it as a GitHub Release (no notarization - no paid Apple Developer account).
+- **In-app updater.** Minimal and GitHub-Releases-based, no Sparkle: `UpdateChecker` polls the pinned repo's latest release (auto-check throttled to 24h), `UpdateInstaller` downloads the DMG, swap-installs into `/Applications`, clears quarantine, and relaunches. Trust model = pinned owner/repo over HTTPS only - see the comment in `Shared/Services/UpdateChecker.swift`.
 - **Distribution.** The shipped DMG is Developer ID-signed and notarized, and there is a Homebrew cask. Download and install details live in [`README.md`](README.md) and [`SETUP.md`](SETUP.md); this doc does not duplicate the release-and-publish mechanics.
 
 ## Gotchas and known traps

@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsSectionView: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var updateStore: UpdateStore
 
     @State private var isImporting = false
     @State private var importMessage: String?
@@ -25,6 +26,7 @@ struct SettingsSectionView: View {
                 proxySection
                 refreshSection
                 serviceStatusSection
+                updatesSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -205,6 +207,113 @@ struct SettingsSectionView: View {
             Text(String(localized: "sidebar.serviceStatus"))
         } footer: {
             Text(String(localized: "sidebar.serviceStatus.subtitle"))
+        }
+    }
+
+    // MARK: - Updates
+
+    /// In-app updater: current version + manual check row, then one
+    /// state-dependent feedback row (up to date / available with install +
+    /// release notes / download progress / installing / error).
+    private var updatesSection: some View {
+        Section {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "settings.updates.current"))
+                    Text("v\(updateStore.currentVersion)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if updateStore.state == .checking {
+                    ProgressView().controlSize(.small)
+                }
+                Button {
+                    Task { await updateStore.checkNow() }
+                } label: {
+                    Label(String(localized: "settings.updates.check"), systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .disabled(updateCheckDisabled)
+            }
+            .padding(.vertical, 2)
+
+            updateStatusRow
+        } header: {
+            Text(String(localized: "settings.updates.title"))
+        }
+    }
+
+    private var updateCheckDisabled: Bool {
+        switch updateStore.state {
+        case .checking, .downloading, .installing: true
+        default: false
+        }
+    }
+
+    @ViewBuilder
+    private var updateStatusRow: some View {
+        switch updateStore.state {
+        case .idle, .checking:
+            EmptyView()
+
+        case .upToDate:
+            Label(String(localized: "settings.updates.uptodate"), systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(DS.Pastel.green)
+
+        case .available(let info):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(format: String(localized: "settings.updates.available"), info.version))
+                    .font(.callout)
+                HStack(spacing: 14) {
+                    Button {
+                        Task { await updateStore.installAvailableUpdate() }
+                    } label: {
+                        Label(String(localized: "settings.updates.install"), systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(DS.Pastel.green)
+                    .controlSize(.small)
+
+                    Link(String(localized: "settings.updates.notes"), destination: info.releaseURL)
+                        .font(.caption)
+                        .foregroundStyle(DS.Pastel.blue)
+                }
+            }
+            .padding(.vertical, 2)
+
+        case .downloading(let fraction):
+            HStack(spacing: 10) {
+                if let fraction {
+                    ProgressView(value: fraction)
+                        .controlSize(.small)
+                        .frame(width: 120)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(String(localized: "settings.updates.downloading"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .installing:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(String(localized: "settings.updates.installing"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .failed(let message):
+            Label {
+                Text(String(format: String(localized: "settings.updates.failed"), message))
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .foregroundStyle(DS.Pastel.coral)
         }
     }
 
