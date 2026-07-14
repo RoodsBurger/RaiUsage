@@ -501,8 +501,11 @@ private struct PopoverFooterToolbar: View {
                     NotificationCenter.default.post(name: .openDashboard, object: nil, userInfo: ["section": "settings"])
                 }
             }
-            // Detach quit from the utility pair, RaiDrive-style.
-            Spacer().frame(width: 18)
+            // Detach quit from the utility pair with a visible hairline, RaiDrive-style.
+            Rectangle()
+                .fill(DS.Pastel.border)
+                .frame(width: 1, height: 16)
+                .padding(.horizontal, 9)
             toolbarButton(system: "power", help: "menubar.quit") {
                 NSApplication.shared.terminate(nil)
             }

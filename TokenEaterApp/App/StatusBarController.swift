@@ -111,9 +111,9 @@ final class StatusBarController: NSObject {
     }
 
     /// Borderless, `.nonactivatingPanel` panel anchored under the status item.
-    /// No arrow (unlike `NSPopover`), no forced appearance - the
-    /// `NSVisualEffectView` backing follows the system material, so it tracks
-    /// light/dark automatically instead of always rendering dark. Dismissal is
+    /// No arrow (unlike `NSPopover`); pinned to `.darkAqua` so the vibrancy
+    /// material renders the same dark translucency on Light Mode Macs (the
+    /// pastel palette is dark-first). Dismissal is
     /// fully manual (see `startPopoverDismissMonitors`): click-outside,
     /// Escape, app-deactivation (Cmd-Tab) and Space changes all close it, the
     /// same set `NSPopover`'s `.applicationDefined` behavior gave us before -
@@ -134,6 +134,10 @@ final class StatusBarController: NSObject {
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .utilityWindow
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        // Dark-first design: pin the panel (and its vibrancy material) to dark
+        // so the popover renders identically on Light Mode Macs instead of
+        // flipping to a light material under the same pastel palette.
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         // Native vibrancy: NSPopover rendered this automatically; a borderless
         // panel needs its own NSVisualEffectView, masked to rounded corners.
