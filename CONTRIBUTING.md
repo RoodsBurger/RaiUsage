@@ -68,7 +68,7 @@ For changes in `Shared/` (stores, services, helpers), please run the unit tests:
 
 ```bash
 xcodegen generate
-xcodebuild -project TokenEater.xcodeproj -scheme TokenEaterTests \
+xcodebuild -project RaiUsage.xcodeproj -scheme RaiUsageTests \
   -configuration Debug -derivedDataPath build \
   -destination 'platform=macOS' \
   CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
@@ -88,7 +88,7 @@ CI runs the tests automatically on PRs so you'll see if anything broke
 
 ## Questions
 
-- General questions or ideas in progress: [GitHub Discussions](https://github.com/AThevon/TokenEater/discussions)
+- General questions or ideas in progress: [GitHub Discussions](https://github.com/RoodsBurger/RaiUsage/discussions)
 - Security issues: please email me directly at [adrien.thevon@pictarine.com](mailto:adrien.thevon@pictarine.com) rather than opening a public issue
 
 That's it, thanks for being here 🤘

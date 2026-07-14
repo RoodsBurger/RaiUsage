@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="TokenEaterApp/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="128" height="128" alt="RaiUsage">
+  <img src="RaiUsageApp/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="128" height="128" alt="RaiUsage">
 </p>
 
 <h1 align="center">RaiUsage</h1>
@@ -87,7 +87,7 @@ What `./build.sh` runs under the hood:
 
 ```bash
 xcodegen generate
-xcodebuild -project TokenEater.xcodeproj -scheme TokenEaterApp \
+xcodebuild -project RaiUsage.xcodeproj -scheme RaiUsageApp \
   -configuration Release -derivedDataPath build build
 cp -R "build/Build/Products/Release/RaiUsage.app" /Applications/
 ```
@@ -95,7 +95,7 @@ cp -R "build/Build/Products/Release/RaiUsage.app" /Applications/
 ## Architecture
 
 ```
-TokenEaterApp/           App host (settings, OAuth, menu bar, popover, dashboard)
+RaiUsageApp/           App host (settings, OAuth, menu bar, popover, dashboard)
 Shared/                  Shared code (services, stores, models, pacing)
   ├── Models/            Pure Codable structs
   ├── Services/          Protocol-based I/O (API, TokenProvider, OAuth, SharedFile, Notification, SessionHistory)

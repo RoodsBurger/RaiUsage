@@ -260,11 +260,10 @@ The toggle + profile are both mirrored to the shared file (`SharedFileService.sm
 | `Shared/Helpers/PacingCalculator.swift`   | Pacing zone computation |
 | `Shared/Models/ThemeModels.swift`         | `ThemeColors` + the public smart wrappers (`smartRisk`, `smartGaugeColor`, `smartGaugeNSColor`, `smartGaugeGradient`, `smartLevel`, `smartZone`) |
 | `Shared/Helpers/MenuBarRenderer.swift`    | Menu bar coloring (NSColor variants, profile-aware) |
-| `TokenEaterApp/MonitoringView.swift`      | Stats hero + tiles + pacing sub-rows |
-| `TokenEaterApp/Popover/*.swift`           | Popover layouts (Classic / Compact / Focus) |
-| `TokenEaterWidget/UsageWidgetView.swift`  | Widget gauges + bars |
-| `Shared/Services/SharedFileService.swift` | `smartColorEnabled` + `smartColorProfile` propagation to the widget process |
-| `TokenEaterTests/SmartColorTests.swift`   | Validation matrix (continuity, monotonicity, hysteresis, end-to-end via ThemeColors) |
+| `RaiUsageApp/Windows/Monitoring/MonitoringView.swift` | Stats hero + tiles + pacing sub-rows |
+| `RaiUsageApp/Popover/*.swift`             | Popover layouts (Classic / Compact / Focus) |
+| `Shared/Services/SharedFileService.swift` | `smartColorEnabled` + `smartColorProfile` persistence in the shared cache |
+| `RaiUsageTests/SmartColorTests.swift`     | Validation matrix (continuity, monotonicity, hysteresis, end-to-end via ThemeColors) |
 
 ## Related
 

@@ -33,7 +33,7 @@ body:
         3. ...
 
   - type: input
-    id: tokeneater-version
+    id: raiusage-version
     attributes:
       label: RaiUsage version
       description: Found in Settings -> About, or the menu bar tooltip.

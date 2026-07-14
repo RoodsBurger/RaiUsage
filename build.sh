@@ -34,8 +34,8 @@ xcodegen generate
 
 echo "==> Building $CONFIG"
 xcodebuild \
-  -project TokenEater.xcodeproj \
-  -scheme TokenEaterApp \
+  -project RaiUsage.xcodeproj \
+  -scheme RaiUsageApp \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED" \
   -destination 'platform=macOS' \

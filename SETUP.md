@@ -31,8 +31,8 @@ cd RaiUsage
 ```bash
 brew install xcodegen
 xcodegen generate
-xcodebuild -project TokenEater.xcodeproj \
-  -scheme TokenEaterApp \
+xcodebuild -project RaiUsage.xcodeproj \
+  -scheme RaiUsageApp \
   -configuration Release \
   -derivedDataPath build build
 cp -R "build/Build/Products/Release/RaiUsage.app" /Applications/
@@ -51,13 +51,13 @@ cp -R "build/Build/Products/Release/RaiUsage.app" /Applications/
 ## Structure
 
 ```
-TokenEaterApp/               App host (menu bar, popover, dashboard, onboarding)
+RaiUsageApp/               App host (menu bar, popover, dashboard, onboarding)
   ├── App/                      # @main + AppDelegate + StatusBarController, store wiring
   ├── Windows/                  # Dashboard window (Monitoring / History sections)
   ├── Popover/                  # Menu bar quick-glance popover
   ├── Settings/                 # Grouped settings sections
   ├── Onboarding/               # Single-screen hero onboarding + OAuth view model
-  └── TokenEaterApp.entitlements
+  └── RaiUsageApp.entitlements
 Shared/                      Shared code (compiled into both targets)
   ├── Models/                Pure Codable structs
   ├── Services/              Protocol-based I/O (+ Protocols/)

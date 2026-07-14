@@ -290,7 +290,7 @@ Fix:
 ## 6. Project & CI changes
 
 - `project.yml`: drop the widget target and its entitlements/plist wiring; keep
-  `TokenEaterApp` and `TokenEaterTests`; remove the installer prebuild step.
+  `RaiUsageApp` and `RaiUsageTests` (the app and tests targets); remove the installer prebuild step.
   Regenerate with `xcodegen generate`.
 - Workflows: keep `ci.yml` (build + tests on PR/push). Replace `release.yml`
   with a trimmed release workflow: on `v*` tag (or manual dispatch), build
@@ -324,7 +324,7 @@ Four stages, each ending with a green build + tests:
 
 Verification per repo rules:
 
-- Full test suite after each stage (`xcodebuild ... -scheme TokenEaterTests test`).
+- Full test suite after each stage (`xcodebuild ... -scheme RaiUsageTests test`).
 - Release-configuration build with the Xcode 16.4 toolchain for any SwiftUI
   change; manual popover/menu-bar/dashboard walkthrough.
 - Hard SwiftUI rules remain law: no `@Observable`, no `@StateObject` in the App

@@ -344,7 +344,6 @@ Before merging a UI change:
 
 - Menu bar renderer (`MenuBarRenderer.swift`) -> NSAttributedString rendering, independent
 - Popover layouts (Classic / Focus / Compact) -> their own identity, consistent with the menu-bar ecosystem
-- Widget views (`TokenEaterWidget/`) -> constrained by WidgetKit + sandbox
 - `ThemeColors` struct and the 4 presets -> keep colouring the gauges / data points
 
 If any of these needs to evolve, that's a **separate effort** deserving its own design-excellence iteration.

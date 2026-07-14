@@ -26,8 +26,8 @@ jobs:
       - name: Build (Release)
         run: |
           xcodebuild \
-            -project TokenEater.xcodeproj \
-            -scheme TokenEaterApp \
+            -project RaiUsage.xcodeproj \
+            -scheme RaiUsageApp \
             -configuration Release \
             -derivedDataPath build \
             -destination 'platform=macOS' \
@@ -38,8 +38,8 @@ jobs:
       - name: Test
         run: |
           xcodebuild \
-            -project TokenEater.xcodeproj \
-            -scheme TokenEaterTests \
+            -project RaiUsage.xcodeproj \
+            -scheme RaiUsageTests \
             -configuration Debug \
             -derivedDataPath build \
             -destination 'platform=macOS' \
