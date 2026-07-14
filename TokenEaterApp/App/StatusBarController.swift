@@ -4,6 +4,12 @@ import Combine
 
 @MainActor
 final class StatusBarController: NSObject {
+    /// Floor for the non-onboarding dashboard window -> wide enough for
+    /// `SidebarNav`'s minimum column width (190pt) plus a usable detail pane.
+    /// Shared by `showDashboard` (`minSize`/`contentMinSize`) and
+    /// `windowWillResize`'s hard clamp so both stay in sync.
+    static let dashboardMinSize = NSSize(width: 760, height: 480)
+
     private var statusItem: NSStatusItem
     /// Borderless, non-activating panel that replaces `NSPopover` for the
     /// quick-glance dropdown - no arrow, RaiDrive-style. Backed by an
@@ -365,15 +371,12 @@ final class StatusBarController: NSObject {
     @objc private func handleDashboardRequest(_ notification: Notification) {
         showDashboard()
 
+        // Re-post as-is once validated -> `NavigationTarget.parse` also
+        // gates the payload MainAppView's own `.navigateToSection` listener
+        // will parse, so an unrecognised section never reaches the sidebar.
         if let section = notification.userInfo?["section"] as? String,
-           let target = NavigationTarget.parse(section) {
-            let payload: String
-            if let sub = target.settingsSection {
-                payload = "settings.\(sub.rawValue)"
-            } else {
-                payload = target.space.rawValue
-            }
-            NotificationCenter.default.post(name: .navigateToSection, object: nil, userInfo: ["section": payload])
+           NavigationTarget.parse(section) != nil {
+            NotificationCenter.default.post(name: .navigateToSection, object: nil, userInfo: ["section": section])
         }
     }
 
@@ -678,8 +681,8 @@ final class StatusBarController: NSObject {
             window.minSize = size
             window.maxSize = size
         } else {
-            window.minSize = NSSize(width: 600, height: 440)
-            window.contentMinSize = NSSize(width: 600, height: 440)
+            window.minSize = Self.dashboardMinSize
+            window.contentMinSize = Self.dashboardMinSize
             window.setFrameAutosaveName("TokenEaterMain")
         }
 
@@ -826,8 +829,8 @@ extension StatusBarController: NSWindowDelegate {
     /// for the `minSize` / `contentMinSize` properties.
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         NSSize(
-            width: max(frameSize.width, 600),
-            height: max(frameSize.height, 440)
+            width: max(frameSize.width, StatusBarController.dashboardMinSize.width),
+            height: max(frameSize.height, StatusBarController.dashboardMinSize.height)
         )
     }
 }

@@ -30,10 +30,6 @@ enum DS {
         static let bgHover    = Color(hex: "#202020")
         static let bgActive   = Color(hex: "#242424")
 
-        // Ambient gradient -> top-left lift (L1) -> bottom-right floor (L0)
-        static let gradientTopLeft     = Color(hex: "#141414")
-        static let gradientBottomRight = Color(hex: "#0E0E0E")
-
         // Glass
         static let glassFill     = Color.white.opacity(0.03)
         static let glassFillHi   = Color.white.opacity(0.06)
@@ -258,18 +254,6 @@ extension View {
                 RoundedRectangle(cornerRadius: radius)
                     .stroke(DS.Palette.glassBorder, lineWidth: 1)
             )
-    }
-
-    /// Full-bleed ambient gradient used as the window root background.
-    func dsWindowBackground() -> some View {
-        self.background(
-            LinearGradient(
-                colors: [DS.Palette.gradientTopLeft, DS.Palette.gradientBottomRight],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-        )
     }
 
     /// Cursor-aware highlight ready for card hover. Pass a bound CGPoint
