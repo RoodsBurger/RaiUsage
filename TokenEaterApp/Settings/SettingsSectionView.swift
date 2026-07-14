@@ -4,278 +4,36 @@ struct SettingsSectionView: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
 
-    @State private var isTesting = false
-    @State private var testResult: ConnectionTestResult?
     @State private var isImporting = false
     @State private var importMessage: String?
     @State private var importSuccess = false
-    /// Local mirror of the status poll interval for the slider (seconds).
-    /// @State + .onChange instead of Binding(get:set:), per the SwiftUI rules.
-    @State private var statusPollIntervalSeconds: Double
     /// Owns the "Sign in with Claude" own-OAuth-login flow for this card.
     /// A child view's `@StateObject` (not the App struct), so it is allowed
     /// to persist across this view's re-renders per the SwiftUI rules.
     @StateObject private var connectFlow = OnboardingViewModel()
 
-    init(initialStatusInterval: Int) {
-        _statusPollIntervalSeconds = State(initialValue: Double(initialStatusInterval))
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionTitle(
+        VStack(alignment: .leading, spacing: 12) {
+            settingsHeader(
                 String(localized: "sidebar.settings"),
                 subtitle: String(localized: "sidebar.settings.subtitle")
             )
 
-            // Connection
-            glassCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    cardLabel(String(localized: "settings.tab.connection"))
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(usageStore.hasConfig && !usageStore.isDisconnected ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        Text(usageStore.hasConfig && !usageStore.isDisconnected
-                             ? String(localized: "settings.connected")
-                             : String(localized: "settings.disconnected"))
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.8))
-                        Spacer()
-                        if isImporting {
-                            ProgressView().scaleEffect(0.6)
-                        }
-                        Button(String(localized: "settings.redetect")) {
-                            connectAutoDetect()
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.blue)
-                    }
-                    if let message = importMessage {
-                        Text(message)
-                            .font(.system(size: 11))
-                            .foregroundStyle(importSuccess ? .green : .orange)
-                    }
-                    if usageStore.errorState == .rateLimited {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Label {
-                                Text("error.banner.apiunavailable.settings")
-                                    .font(.system(size: 11))
-                            } icon: {
-                                Image(systemName: "icloud.slash")
-                                    .font(.system(size: 10))
-                            }
-                            .foregroundStyle(.orange.opacity(0.8))
-                            if let last = usageStore.lastUpdate {
-                                Text(String(format: String(localized: "error.banner.lastupdate"),
-                                            last.formatted(.relative(presentation: .named))))
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.white.opacity(0.4))
-                            }
-                        }
-                    }
-                    if let result = testResult {
-                        Text(result.message)
-                            .font(.system(size: 11))
-                            .foregroundStyle(result.success ? .green : .red)
-                    }
-
-                    Divider().opacity(0.12)
-
-                    signInWithClaudeBlock
-                }
+            Form {
+                connectionSection
+                generalSection
+                proxySection
+                refreshSection
+                serviceStatusSection
+                aboutSection
             }
-
-            // General (Launch at login + replay onboarding)
-            glassCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    cardLabel(String(localized: "settings.general.title"))
-                    darkToggle(String(localized: "settings.launchAtLogin"), isOn: $settingsStore.launchAtLoginEnabled)
-                    Text(String(localized: "settings.launchAtLogin.hint"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    darkToggle(String(localized: "settings.launchInBackground"), isOn: $settingsStore.display.launchInBackground)
-                    Text(String(localized: "settings.launchInBackground.hint"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Divider().opacity(0.12)
-
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(String(localized: "settings.general.replayOnboarding"))
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.85))
-                            Text(String(localized: "settings.general.replayOnboarding.hint"))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.4))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer()
-                        Button {
-                            settingsStore.hasCompletedOnboarding = false
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 11, weight: .semibold))
-                                Text(String(localized: "settings.general.replayOnboarding.action"))
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundStyle(.white.opacity(0.9))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color.blue.opacity(0.18))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                            .stroke(Color.blue.opacity(0.4), lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            // Proxy
-            glassCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    cardLabel(String(localized: "settings.tab.proxy"))
-                    darkToggle(String(localized: "settings.proxy.toggle"), isOn: $settingsStore.proxyEnabled)
-                    if settingsStore.proxyEnabled {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(String(localized: "settings.proxy.host"))
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.white.opacity(0.4))
-                                TextField("127.0.0.1", text: $settingsStore.proxyHost)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 12, design: .monospaced))
-                            }
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(String(localized: "settings.proxy.port"))
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.white.opacity(0.4))
-                                TextField("1080", value: $settingsStore.proxyPort, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .frame(width: 80)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Refresh interval
-            glassCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    cardLabel(String(localized: "settings.refresh.title"))
-                    HStack {
-                        Text(String(localized: "settings.refresh.interval"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Spacer()
-                        Text(formatInterval(settingsStore.refreshInterval))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    TokenEaterSlider(
-                        value: Binding(
-                            get: { Double(settingsStore.refreshInterval) },
-                            set: { settingsStore.refreshInterval = Int($0) }
-                        ),
-                        in: 180...900,
-                        step: 60,
-                        showsTicks: true
-                    )
-                    if settingsStore.refreshInterval < 300 {
-                        Label {
-                            Text(String(localized: "settings.refresh.warning"))
-                                .font(.system(size: 10))
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 9))
-                        }
-                        .foregroundStyle(.orange.opacity(0.8))
-                    }
-                }
-            }
-
-            // Service status (outage monitoring). Moved here from a dedicated
-            // sidebar section: a full section for 3 controls was overkill, and
-            // this matches the Proxy card pattern (toggle + conditional config).
-            glassCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    cardLabel(String(localized: "sidebar.serviceStatus"))
-                    darkToggle(String(localized: "settings.status.master"), isOn: $settingsStore.outageMonitoringEnabled)
-                    Text(String(localized: "sidebar.serviceStatus.subtitle"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if settingsStore.outageMonitoringEnabled {
-                        HStack {
-                            Text(String(localized: "settings.status.interval.label"))
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                            Text(formatInterval(Int(statusPollIntervalSeconds)))
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.9))
-                        }
-                        TokenEaterSlider(
-                            value: $statusPollIntervalSeconds,
-                            in: 60...1800,
-                            step: 60,
-                            showsTicks: true
-                        )
-                        darkToggle(String(localized: "settings.status.badge"), isOn: $settingsStore.statusShowMenuBarBadge)
-                    }
-                }
-            }
-
-            // About
-            glassCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    cardLabel(String(localized: "settings.about.title"))
-                    AboutLinkRow(
-                        icon: "chevron.left.forwardslash.chevron.right",
-                        title: String(localized: "settings.about.repository"),
-                        subtitle: String(localized: "settings.about.repository.hint"),
-                        url: URL(string: "https://github.com/AThevon/TokenEater")!
-                    )
-                    AboutLinkRow(
-                        icon: "exclamationmark.bubble.fill",
-                        title: String(localized: "settings.about.issues"),
-                        subtitle: String(localized: "settings.about.issues.hint"),
-                        url: URL(string: "https://github.com/AThevon/TokenEater/issues")!
-                    )
-                    AboutLinkRow(
-                        icon: "tag.fill",
-                        title: String(localized: "settings.about.releases"),
-                        subtitle: String(localized: "settings.about.releases.hint"),
-                        url: URL(string: "https://github.com/AThevon/TokenEater/releases")!
-                    )
-                }
-            }
-
-            Spacer()
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(24)
         .onAppear {
             Task { await settingsStore.refreshNotificationStatus() }
             Task { await connectFlow.refreshConnectedAccountEmail() }
-        }
-        .onChange(of: statusPollIntervalSeconds) { _, secs in
-            let v = Int(secs)
-            if settingsStore.statusPollInterval != v { settingsStore.statusPollInterval = v }
-        }
-        .onChange(of: settingsStore.statusPollInterval) { _, v in
-            if Int(statusPollIntervalSeconds) != v { statusPollIntervalSeconds = Double(v) }
         }
         .onChange(of: connectFlow.oauthSignInStatus) { _, newStatus in
             guard case .success = newStatus else { return }
@@ -283,6 +41,228 @@ struct SettingsSectionView: View {
             usageStore.handleTokenChange()
             usageStore.reloadConfig(thresholds: settingsStore.thresholds)
         }
+    }
+
+    // MARK: - Connection
+
+    private var connectionSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(usageStore.hasConfig && !usageStore.isDisconnected ? RiskZone.ok.color : RiskZone.critical.color)
+                    .frame(width: 8, height: 8)
+                Text(usageStore.hasConfig && !usageStore.isDisconnected
+                     ? String(localized: "settings.connected")
+                     : String(localized: "settings.disconnected"))
+                Spacer()
+                if isImporting {
+                    ProgressView().controlSize(.small)
+                }
+                Button(String(localized: "settings.redetect")) {
+                    connectAutoDetect()
+                }
+                .buttonStyle(.borderless)
+            }
+            if let message = importMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(importSuccess ? DS.Pastel.green : DS.Pastel.amber)
+            }
+            if usageStore.errorState == .rateLimited {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label {
+                        Text("error.banner.apiunavailable.settings")
+                            .font(.caption)
+                    } icon: {
+                        Image(systemName: "icloud.slash")
+                    }
+                    .foregroundStyle(DS.Pastel.amber)
+                    if let last = usageStore.lastUpdate {
+                        Text(String(format: String(localized: "error.banner.lastupdate"),
+                                    last.formatted(.relative(presentation: .named))))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Divider()
+
+            signInWithClaudeBlock
+        } header: {
+            Text(String(localized: "settings.tab.connection"))
+        }
+    }
+
+    // MARK: - General (launch at login + replay onboarding)
+
+    private var generalSection: some View {
+        Section {
+            toggleRow(
+                String(localized: "settings.launchAtLogin"),
+                hint: String(localized: "settings.launchAtLogin.hint"),
+                isOn: $settingsStore.launchAtLoginEnabled
+            )
+            toggleRow(
+                String(localized: "settings.launchInBackground"),
+                hint: String(localized: "settings.launchInBackground.hint"),
+                isOn: $settingsStore.display.launchInBackground
+            )
+
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "settings.general.replayOnboarding"))
+                    Text(String(localized: "settings.general.replayOnboarding.hint"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button {
+                    settingsStore.hasCompletedOnboarding = false
+                } label: {
+                    Label(String(localized: "settings.general.replayOnboarding.action"), systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.vertical, 2)
+        } header: {
+            Text(String(localized: "settings.general.title"))
+        }
+    }
+
+    // MARK: - Proxy
+
+    private var proxySection: some View {
+        Section {
+            Toggle(String(localized: "settings.proxy.toggle"), isOn: $settingsStore.proxyEnabled)
+                .tint(DS.Pastel.green)
+            if settingsStore.proxyEnabled {
+                LabeledContent(String(localized: "settings.proxy.host")) {
+                    TextField("127.0.0.1", text: $settingsStore.proxyHost)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 140)
+                }
+                LabeledContent(String(localized: "settings.proxy.port")) {
+                    TextField("1080", value: $settingsStore.proxyPort, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 80)
+                }
+                Text(String(localized: "settings.proxy.hint"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text(String(localized: "settings.tab.proxy"))
+        } footer: {
+            Text(String(localized: "settings.proxy.footer"))
+        }
+    }
+
+    // MARK: - Refresh interval
+
+    private var refreshSection: some View {
+        Section {
+            Stepper(value: $settingsStore.refreshInterval, in: 180...900, step: 60) {
+                LabeledContent(
+                    String(localized: "settings.refresh.interval"),
+                    value: formatInterval(settingsStore.refreshInterval)
+                )
+            }
+        } header: {
+            Text(String(localized: "settings.refresh.title"))
+        } footer: {
+            if settingsStore.refreshInterval < 300 {
+                Label {
+                    Text(String(localized: "settings.refresh.warning"))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.caption)
+                .foregroundStyle(DS.Pastel.amber)
+            }
+        }
+    }
+
+    // MARK: - Service status (outage monitoring)
+
+    private var serviceStatusSection: some View {
+        Section {
+            Toggle(String(localized: "settings.status.master"), isOn: $settingsStore.outageMonitoringEnabled)
+                .tint(DS.Pastel.green)
+            if settingsStore.outageMonitoringEnabled {
+                Stepper(value: $settingsStore.statusPollInterval, in: 60...1800, step: 60) {
+                    LabeledContent(
+                        String(localized: "settings.status.interval.label"),
+                        value: formatInterval(settingsStore.statusPollInterval)
+                    )
+                }
+                Toggle(String(localized: "settings.status.badge"), isOn: $settingsStore.statusShowMenuBarBadge)
+                    .tint(DS.Pastel.green)
+            }
+        } header: {
+            Text(String(localized: "sidebar.serviceStatus"))
+        } footer: {
+            Text(String(localized: "sidebar.serviceStatus.subtitle"))
+        }
+    }
+
+    // MARK: - About
+
+    private var aboutSection: some View {
+        Section {
+            aboutRow(
+                icon: "chevron.left.forwardslash.chevron.right",
+                title: String(localized: "settings.about.repository"),
+                subtitle: String(localized: "settings.about.repository.hint"),
+                url: URL(string: "https://github.com/AThevon/TokenEater")!
+            )
+            aboutRow(
+                icon: "exclamationmark.bubble.fill",
+                title: String(localized: "settings.about.issues"),
+                subtitle: String(localized: "settings.about.issues.hint"),
+                url: URL(string: "https://github.com/AThevon/TokenEater/issues")!
+            )
+            aboutRow(
+                icon: "tag.fill",
+                title: String(localized: "settings.about.releases"),
+                subtitle: String(localized: "settings.about.releases.hint"),
+                url: URL(string: "https://github.com/AThevon/TokenEater/releases")!
+            )
+        } header: {
+            Text(String(localized: "settings.about.title"))
+        }
+    }
+
+    private func aboutRow(icon: String, title: String, subtitle: String, url: URL) -> some View {
+        Link(destination: url) {
+            LabeledContent {
+                Image(systemName: "arrow.up.forward")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } label: {
+                Label(title, systemImage: icon)
+            }
+        }
+        .help(subtitle)
+    }
+
+    // MARK: - Row helpers
+
+    /// A `Toggle` with a `.caption` hint line underneath, for General's two
+    /// launch-behavior rows where each toggle needs its own explanation
+    /// (a single `Section` footer can only describe one thing).
+    private func toggleRow(_ title: String, hint: String, isOn: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(title, isOn: isOn)
+                .tint(DS.Pastel.green)
+            Text(hint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
     }
 
     private func formatInterval(_ seconds: Int) -> String {
@@ -332,16 +312,14 @@ struct SettingsSectionView: View {
         if connectFlow.isSignedInWithClaude {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(DS.Palette.semanticSuccess)
+                    .foregroundStyle(DS.Pastel.green)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "connect.signin.success"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(DS.Palette.textPrimary)
+                        .font(.callout)
                     if let email = connectFlow.connectedAccountEmail {
                         Text(email)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(DS.Palette.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
@@ -349,7 +327,6 @@ struct SettingsSectionView: View {
                     signOutOfClaude()
                 } label: {
                     Text(String(localized: "connect.signin.signout"))
-                        .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -363,10 +340,9 @@ struct SettingsSectionView: View {
                             connectFlow.signInWithClaude()
                         } label: {
                             Label(String(localized: "connect.signin.title"), systemImage: "person.badge.key.fill")
-                                .font(.system(size: 12, weight: .semibold))
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(DS.Palette.accentSettings)
+                        .tint(DS.Pastel.green)
                         .controlSize(.small)
 
                         Button(String(localized: "connect.secondary.title")) {
@@ -376,46 +352,45 @@ struct SettingsSectionView: View {
                         .controlSize(.small)
                     }
                     Text(String(localized: "connect.secondary.subtitle"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(DS.Palette.textTertiary)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
 
                 case .browserOpenedWaiting:
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
                         Text(String(localized: "connect.signin.waiting"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(DS.Palette.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 14) {
                         Button(String(localized: "connect.signin.manualpaste.link")) {
                             connectFlow.switchToManualPaste()
                         }
                         .buttonStyle(.plain)
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Palette.accentHistory)
+                        .font(.caption)
+                        .foregroundStyle(DS.Pastel.blue)
 
                         Button(String(localized: "connect.signin.cancel")) {
                             connectFlow.cancelSignIn()
                         }
                         .buttonStyle(.plain)
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Palette.textTertiary)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                     }
 
                 case .manualCodePaste:
                     Text(String(localized: "connect.signin.manualpaste.prompt"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Palette.textSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     TextField(String(localized: "connect.signin.manualpaste.placeholder"), text: $connectFlow.manualPasteCode)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .monospaced))
                     HStack(spacing: 14) {
                         Button(String(localized: "connect.signin.manualpaste.submit")) {
                             connectFlow.submitManualPasteCode()
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(DS.Palette.accentSettings)
+                        .tint(DS.Pastel.green)
                         .controlSize(.small)
                         .disabled(connectFlow.isSubmittingManualCode
                                   || connectFlow.manualPasteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -424,116 +399,42 @@ struct SettingsSectionView: View {
                             connectFlow.cancelSignIn()
                         }
                         .buttonStyle(.plain)
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Palette.textTertiary)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                     }
 
                 case .success:
                     Label(String(localized: "connect.signin.success"), systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(DS.Palette.semanticSuccess)
+                        .font(.callout)
+                        .foregroundStyle(DS.Pastel.green)
 
                 case .failed(let error):
                     VStack(alignment: .leading, spacing: 6) {
                         Label {
                             Text(OAuthErrorFormatter.message(for: error))
-                                .font(.system(size: 11))
+                                .font(.caption)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
                         }
-                        .foregroundStyle(DS.Palette.semanticError)
+                        .foregroundStyle(DS.Pastel.coral)
                         HStack(spacing: 14) {
                             Button(String(localized: "connect.signin.title")) {
                                 connectFlow.signInWithClaude()
                             }
                             .buttonStyle(.borderedProminent)
-                            .tint(DS.Palette.accentSettings)
+                            .tint(DS.Pastel.green)
                             .controlSize(.small)
 
                             Button(String(localized: "connect.signin.manualpaste.link")) {
                                 connectFlow.switchToManualPaste()
                             }
                             .buttonStyle(.plain)
-                            .font(.system(size: 11))
-                            .foregroundStyle(DS.Palette.accentHistory)
+                            .font(.caption)
+                            .foregroundStyle(DS.Pastel.blue)
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-// MARK: - About link row
-
-/// Single link inside the About card. Mirrors the hover pattern used by
-/// `MonitoringView.refreshButton` and `MainAppView.powerButton`: glassFill +
-/// accentSettings tint with springSnap, and a subtle -1pt lift.
-private struct AboutLinkRow: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-    let url: URL
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        Button {
-            NSWorkspace.shared.open(url)
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(isHovering
-                              ? DS.Palette.accentSettings.opacity(0.18)
-                              : DS.Palette.glassFill)
-                        .overlay(
-                            Circle().stroke(
-                                isHovering
-                                    ? DS.Palette.accentSettings.opacity(0.55)
-                                    : DS.Palette.glassBorderLo,
-                                lineWidth: 1
-                            )
-                        )
-                        .frame(width: 30, height: 30)
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isHovering
-                                         ? DS.Palette.accentSettings
-                                         : .white.opacity(0.65))
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(isHovering ? 0.95 : 0.85))
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isHovering
-                                     ? DS.Palette.accentSettings
-                                     : .white.opacity(0.35))
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovering ? DS.Palette.glassFill : Color.clear)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .offset(y: (isHovering && !reduceMotion) ? -1 : 0)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(DS.Motion.springSnap) { isHovering = hovering }
         }
     }
 }

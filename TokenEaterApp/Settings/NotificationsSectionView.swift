@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings sub-section dedicated to notifications. Hosts the authorization
-/// status row + test button at the top, then a card per category (usage
+/// status row + test button at the top, then a section per category (usage
 /// thresholds / pacing / reset reminders / extra credits / health) with one
 /// toggle per event.
 struct NotificationsSectionView: View {
@@ -10,37 +10,41 @@ struct NotificationsSectionView: View {
     @State private var notifTestCooldown = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                sectionTitle(
-                    String(localized: "sidebar.notifications"),
-                    subtitle: String(localized: "sidebar.notifications.subtitle")
-                )
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            settingsHeader(
+                String(localized: "sidebar.notifications"),
+                subtitle: String(localized: "sidebar.notifications.subtitle")
+            ) {
                 ClickChip(
                     label: String(localized: "settings.notifications.master"),
                     icon: settingsStore.notificationsEnabled ? "checkmark" : "bell.slash",
                     isActive: settingsStore.notificationsEnabled,
-                    accent: .blue,
+                    accent: DS.Pastel.green,
                     style: .compact
                 ) {
                     settingsStore.notificationsEnabled.toggle()
                 }
             }
 
-            authorizationCard
-            usageCard
-            pacingCard
-            resetRemindersCard
-            extraCreditsCard
-            healthCard
+            Form {
+                authorizationSection
+                usageSection
+                pacingSection
+                resetRemindersSection
+                extraCreditsSection
+                healthSection
 
-            ResetSectionButton(
-                confirmTitle: String(localized: "settings.notifications.reset.confirm"),
-                onReset: resetToDefaults
-            )
+                Section {
+                    ResetSectionButton(
+                        confirmTitle: String(localized: "settings.notifications.reset.confirm"),
+                        onReset: resetToDefaults
+                    )
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(24)
         .task { await settingsStore.refreshNotificationStatus() }
     }
 
@@ -65,50 +69,43 @@ struct NotificationsSectionView: View {
 
     // MARK: - Authorization
 
-    private var authorizationCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.status"))
-                HStack {
-                    statusLabel
-                    Spacer()
-                    if settingsStore.notificationStatus == .denied {
-                        Button(String(localized: "settings.notifications.open")) {
-                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings")!)
-                        }
-                        .font(.system(size: 11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                    } else if settingsStore.notificationStatus != .authorized {
-                        Button(String(localized: "settings.notifications.enable")) {
-                            settingsStore.requestNotificationPermission()
-                            Task {
-                                try? await Task.sleep(for: .seconds(1))
-                                await settingsStore.refreshNotificationStatus()
-                            }
-                        }
-                        .font(.system(size: 11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
+    private var authorizationSection: some View {
+        Section {
+            HStack {
+                statusLabel
+                Spacer()
+                if settingsStore.notificationStatus == .denied {
+                    Button(String(localized: "settings.notifications.open")) {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings")!)
                     }
-                    Button(String(localized: "settings.notifications.test")) {
-                        if settingsStore.notificationStatus != .authorized {
-                            settingsStore.requestNotificationPermission()
-                        }
-                        settingsStore.sendTestNotification()
-                        notifTestCooldown = true
+                    .buttonStyle(.borderless)
+                } else if settingsStore.notificationStatus != .authorized {
+                    Button(String(localized: "settings.notifications.enable")) {
+                        settingsStore.requestNotificationPermission()
                         Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            notifTestCooldown = false
+                            try? await Task.sleep(for: .seconds(1))
                             await settingsStore.refreshNotificationStatus()
                         }
                     }
-                    .font(.system(size: 11))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
-                    .disabled(notifTestCooldown)
+                    .buttonStyle(.borderless)
                 }
+                Button(String(localized: "settings.notifications.test")) {
+                    if settingsStore.notificationStatus != .authorized {
+                        settingsStore.requestNotificationPermission()
+                    }
+                    settingsStore.sendTestNotification()
+                    notifTestCooldown = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(3))
+                        notifTestCooldown = false
+                        await settingsStore.refreshNotificationStatus()
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(notifTestCooldown)
             }
+        } header: {
+            Text(String(localized: "settings.notifications.status"))
         }
     }
 
@@ -117,101 +114,89 @@ struct NotificationsSectionView: View {
         switch settingsStore.notificationStatus {
         case .authorized:
             Label(String(localized: "settings.notifications.on"), systemImage: "checkmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(.green)
+                .foregroundStyle(DS.Pastel.green)
         case .denied:
             Label(String(localized: "settings.notifications.off"), systemImage: "xmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(.red)
+                .foregroundStyle(DS.Pastel.coral)
         default:
             Label(String(localized: "settings.notifications.unknown"), systemImage: "questionmark.circle")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(.secondary)
         }
     }
 
     // MARK: - Usage thresholds
 
-    private var usageCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.group.usage"))
+    private var usageSection: some View {
+        Section {
+            Toggle(String(localized: "settings.notifications.track.fivehour"), isOn: $settingsStore.notification.trackFiveHour)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.track.weekly"), isOn: $settingsStore.notification.trackWeekly)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.track.sonnet"), isOn: $settingsStore.notification.trackSonnet)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.track.design"), isOn: $settingsStore.notification.trackDesign)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.track.fable"), isOn: $settingsStore.notification.trackFable)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.recovery"), isOn: $settingsStore.notification.sendRecovery)
+                .tint(DS.Pastel.green)
+        } header: {
+            Text(String(localized: "settings.notifications.group.usage"))
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(String(localized: "settings.notifications.group.usage.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-                darkToggle(String(localized: "settings.notifications.track.fivehour"), isOn: $settingsStore.notification.trackFiveHour)
-                darkToggle(String(localized: "settings.notifications.track.weekly"), isOn: $settingsStore.notification.trackWeekly)
-                darkToggle(String(localized: "settings.notifications.track.sonnet"), isOn: $settingsStore.notification.trackSonnet)
-                darkToggle(String(localized: "settings.notifications.track.design"), isOn: $settingsStore.notification.trackDesign)
-                darkToggle(String(localized: "settings.notifications.track.fable"), isOn: $settingsStore.notification.trackFable)
-                Divider().padding(.vertical, 2)
-                darkToggle(String(localized: "settings.notifications.recovery"), isOn: $settingsStore.notification.sendRecovery)
                 Text(String(localized: "settings.notifications.recovery.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     // MARK: - Pacing
 
-    private var pacingCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.group.pacing"))
-                Text(String(localized: "settings.notifications.group.pacing.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-                darkToggle(String(localized: "settings.notifications.pacing.hot"), isOn: $settingsStore.notification.pacingHot)
-                darkToggle(String(localized: "settings.notifications.pacing.warning"), isOn: $settingsStore.notification.pacingWarning)
-            }
+    private var pacingSection: some View {
+        Section {
+            Toggle(String(localized: "settings.notifications.pacing.hot"), isOn: $settingsStore.notification.pacingHot)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.pacing.warning"), isOn: $settingsStore.notification.pacingWarning)
+                .tint(DS.Pastel.green)
+        } header: {
+            Text(String(localized: "settings.notifications.group.pacing"))
+        } footer: {
+            Text(String(localized: "settings.notifications.group.pacing.hint"))
         }
     }
 
     // MARK: - Reset reminders
 
-    private var resetRemindersCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.group.reset"))
-                Text(String(localized: "settings.notifications.group.reset.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-                darkToggle(String(localized: "settings.notifications.reset.session"), isOn: $settingsStore.notification.resetReminderSession)
-                reminderOffsetPicker(
-                    selection: $settingsStore.notification.resetReminderSessionOffset,
-                    options: [5, 10, 15, 30, 60],
-                    enabled: settingsStore.notifResetReminderSession
-                )
-                darkToggle(String(localized: "settings.notifications.reset.weekly"), isOn: $settingsStore.notification.resetReminderWeekly)
-                reminderOffsetPicker(
-                    selection: $settingsStore.notification.resetReminderWeeklyOffset,
-                    options: [30, 60, 120, 180, 360],
-                    enabled: settingsStore.notifResetReminderWeekly
-                )
-            }
+    private var resetRemindersSection: some View {
+        Section {
+            Toggle(String(localized: "settings.notifications.reset.session"), isOn: $settingsStore.notification.resetReminderSession)
+                .tint(DS.Pastel.green)
+            reminderOffsetPicker(
+                selection: $settingsStore.notification.resetReminderSessionOffset,
+                options: [5, 10, 15, 30, 60],
+                enabled: settingsStore.notifResetReminderSession
+            )
+            Toggle(String(localized: "settings.notifications.reset.weekly"), isOn: $settingsStore.notification.resetReminderWeekly)
+                .tint(DS.Pastel.green)
+            reminderOffsetPicker(
+                selection: $settingsStore.notification.resetReminderWeeklyOffset,
+                options: [30, 60, 120, 180, 360],
+                enabled: settingsStore.notifResetReminderWeekly
+            )
+        } header: {
+            Text(String(localized: "settings.notifications.group.reset"))
+        } footer: {
+            Text(String(localized: "settings.notifications.group.reset.hint"))
         }
     }
 
-    @ViewBuilder
     private func reminderOffsetPicker(selection: Binding<Int>, options: [Int], enabled: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(String(localized: "settings.notifications.reset.offset.label"))
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(enabled ? 0.6 : 0.25))
-            Spacer()
-            DSMenu(
-                selection: selection,
-                options: options,
-                label: formatOffsetMinutes,
-                enabled: enabled
-            )
+        Picker(String(localized: "settings.notifications.reset.offset.label"), selection: selection) {
+            ForEach(options, id: \.self) { minutes in
+                Text(formatOffsetMinutes(minutes)).tag(minutes)
+            }
         }
-        .padding(.leading, 12)
+        .disabled(!enabled)
     }
 
     private func formatOffsetMinutes(_ minutes: Int) -> String {
@@ -224,34 +209,31 @@ struct NotificationsSectionView: View {
 
     // MARK: - Extra credits
 
-    private var extraCreditsCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.group.extra"))
-                Text(String(localized: "settings.notifications.group.extra.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-                darkToggle(String(localized: "settings.notifications.extra"), isOn: $settingsStore.notification.extraCredits)
-            }
+    private var extraCreditsSection: some View {
+        Section {
+            Toggle(String(localized: "settings.notifications.extra"), isOn: $settingsStore.notification.extraCredits)
+                .tint(DS.Pastel.green)
+        } header: {
+            Text(String(localized: "settings.notifications.group.extra"))
+        } footer: {
+            Text(String(localized: "settings.notifications.group.extra.hint"))
         }
     }
 
     // MARK: - Health
 
-    private var healthCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                cardLabel(String(localized: "settings.notifications.group.health"))
-                Text(String(localized: "settings.notifications.group.health.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-                darkToggle(String(localized: "settings.notifications.token"), isOn: $settingsStore.notification.tokenExpired)
-                darkToggle(String(localized: "settings.notifications.status.degraded"), isOn: $settingsStore.notification.vendorDegraded)
-                darkToggle(String(localized: "settings.notifications.status.restored"), isOn: $settingsStore.notification.vendorRestored)
-            }
+    private var healthSection: some View {
+        Section {
+            Toggle(String(localized: "settings.notifications.token"), isOn: $settingsStore.notification.tokenExpired)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.status.degraded"), isOn: $settingsStore.notification.vendorDegraded)
+                .tint(DS.Pastel.green)
+            Toggle(String(localized: "settings.notifications.status.restored"), isOn: $settingsStore.notification.vendorRestored)
+                .tint(DS.Pastel.green)
+        } header: {
+            Text(String(localized: "settings.notifications.group.health"))
+        } footer: {
+            Text(String(localized: "settings.notifications.group.health.hint"))
         }
     }
 }
-

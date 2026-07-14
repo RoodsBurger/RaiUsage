@@ -17,7 +17,20 @@ struct MenuBarSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            settingsHeader(
+                String(localized: "sidebar.display"),
+                subtitle: String(localized: "sidebar.display.subtitle")
+            ) {
+                ClickChip(
+                    label: String(localized: "settings.menubar.toggle"),
+                    icon: settingsStore.showMenuBar ? "checkmark" : "eye.slash",
+                    isActive: settingsStore.showMenuBar,
+                    accent: DS.Pastel.green,
+                    style: .compact
+                ) {
+                    settingsStore.showMenuBar.toggle()
+                }
+            }
 
             Form {
                 previewSection
@@ -38,27 +51,6 @@ struct MenuBarSectionView: View {
             if clamped != new { separatorInput = clamped }
             if !clamped.isEmpty, settingsStore.display.menuBarConfig.separator != clamped {
                 settingsStore.display.menuBarConfig.separator = clamped
-            }
-        }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            sectionTitle(
-                String(localized: "sidebar.display"),
-                subtitle: String(localized: "sidebar.display.subtitle")
-            )
-            Spacer()
-            ClickChip(
-                label: String(localized: "settings.menubar.toggle"),
-                icon: settingsStore.showMenuBar ? "checkmark" : "eye.slash",
-                isActive: settingsStore.showMenuBar,
-                accent: .blue,
-                style: .compact
-            ) {
-                settingsStore.showMenuBar.toggle()
             }
         }
     }
@@ -172,6 +164,7 @@ struct MenuBarSectionView: View {
             if supportsCountdown(metric) {
                 Toggle(String(localized: "settings.menubar.countdown"), isOn: pin.showCountdown)
                     .toggleStyle(.checkbox)
+                    .tint(DS.Pastel.green)
                     .labelsHidden()
                     .help(String(localized: "settings.menubar.countdown"))
             }
@@ -280,6 +273,7 @@ struct MenuBarSectionView: View {
                 }
             }
             Toggle(String(localized: "settings.menubar.showIcon"), isOn: $settingsStore.display.menuBarConfig.showIcon)
+                .tint(DS.Pastel.green)
             HStack {
                 Text(String(localized: "settings.menubar.separator"))
                 Spacer()
@@ -288,6 +282,7 @@ struct MenuBarSectionView: View {
                     .multilineTextAlignment(.center)
             }
             Toggle(String(localized: "settings.menubar.fixedWidth"), isOn: $settingsStore.display.menuBarConfig.fixedWidth)
+                .tint(DS.Pastel.green)
         } header: {
             Text(String(localized: "settings.menubar.appearance"))
         } footer: {

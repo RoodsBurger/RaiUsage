@@ -8,7 +8,7 @@ import SwiftUI
 struct HourRangeSlider: View {
     @Binding var startHour: Int   // 0...23
     @Binding var endHour: Int     // 1...24
-    var tint: Color = DS.Palette.accentSettings
+    var tint: Color = DS.Pastel.green
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var activeThumb: Thumb?

@@ -68,29 +68,19 @@ struct MainAppView: View {
     private func settingsDetail(for section: SettingsSection) -> some View {
         switch section {
         case .general:
-            scrolling { SettingsSectionView(initialStatusInterval: settingsStore.statusPollInterval) }
+            SettingsSectionView()
         case .menuBar:
             MenuBarSectionView()
         case .popover:
             PopoverSectionView()
         case .pacing:
-            scrolling {
-                PacingSectionView(
-                    initialWarning: settingsStore.warningThreshold,
-                    initialCritical: settingsStore.criticalThreshold,
-                    initialMargin: settingsStore.pacingMargin
-                )
-            }
+            PacingSectionView(
+                initialWarning: settingsStore.warningThreshold,
+                initialCritical: settingsStore.criticalThreshold,
+                initialMargin: settingsStore.pacingMargin
+            )
         case .notifications:
-            scrolling { NotificationsSectionView() }
-        }
-    }
-
-    @ViewBuilder
-    private func scrolling<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            content()
-                .frame(maxWidth: .infinity, alignment: .top)
+            NotificationsSectionView()
         }
     }
 

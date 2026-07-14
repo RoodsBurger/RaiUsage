@@ -31,24 +31,15 @@ enum DS {
         static let bgActive   = Color(hex: "#242424")
 
         // Glass
-        static let glassFill     = Color.white.opacity(0.03)
-        static let glassFillHi   = Color.white.opacity(0.06)
         static let glassBorder   = Color.white.opacity(0.08) // bumped from 0.06 for clearer panel edges
-        static let glassBorderHi = Color.white.opacity(0.14)
         static let glassBorderLo = Color.white.opacity(0.04)
 
         // Text -> exact site values
-        static let textPrimary   = Color(hex: "#F5F5F7")
-        static let textSecondary = Color(hex: "#A1A1AA")
-        static let textTertiary  = Color(hex: "#63636E")
         static let textDisabled  = Color(hex: "#63636E").opacity(0.4)
 
-        // Module accents -> three hues already native to the site.
-        // Stats = lime green (brand primary), History = info blue,
-        // Settings = warm orange. Opacity capped at 0.15 when used as fill.
+        // Module accents -> hues already native to the site. Opacity capped
+        // at 0.15 when used as fill.
         static let accentStats    = Color(hex: "#32CE6A") // brand green -> data, confidence
-        static let accentHistory  = Color(hex: "#60A5FA") // info blue -> time, narrative
-        static let accentSettings = Color(hex: "#FFB347") // warm orange -> config, control
 
         // Brand green variants (for pressed / light states on primary actions)
         static let brandPrimary  = Color(hex: "#32CE6A")
@@ -57,10 +48,8 @@ enum DS {
 
         // Semantic states (notifications, banners, errors).
         // Re-use site tokens so the app feels consistent with the landing page.
-        static let semanticSuccess = Color(hex: "#32CE6A")
         static let semanticWarning = Color(hex: "#FFB347")
         static let semanticError   = Color(hex: "#F87171")
-        static let semanticInfo    = Color(hex: "#60A5FA")
     }
 
     // MARK: - Spacing
@@ -105,6 +94,13 @@ enum DS {
         /// reset onboarding from Settings). Designed to fit a 2x2 cards
         /// grid next to a left-side hero column.
         static let onboardingWindow = CGSize(width: 1080, height: 675)
+
+        /// Horizontal inset for a Settings section's header (title/subtitle/
+        /// trailing action), matching the leading/trailing margin
+        /// `.formStyle(.grouped)` gives its own Section content. Keeps every
+        /// section's header aligned with the form below it instead of
+        /// sitting flush against - or overflowing - the pane edge.
+        static let settingsHeaderInset: CGFloat = 20
     }
 
     // MARK: - Native design constants (stage-2 language)

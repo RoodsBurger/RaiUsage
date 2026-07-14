@@ -12,7 +12,7 @@ struct PopoverSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(
+            settingsHeader(
                 String(localized: "sidebar.popover"),
                 subtitle: String(localized: "sidebar.popover.subtitle")
             )
@@ -83,7 +83,7 @@ struct PopoverSectionView: View {
             } label: {
                 Image(systemName: isVisible ? "checkmark.square.fill" : "square")
                     .font(.system(size: 13))
-                    .foregroundStyle(isVisible ? DS.Palette.accentSettings : .secondary)
+                    .foregroundStyle(isVisible ? DS.Pastel.green : .secondary)
             }
             .buttonStyle(.plain)
             .disabled(locked)
@@ -117,8 +117,11 @@ struct PopoverSectionView: View {
     private var sectionsSection: some View {
         Section {
             Toggle(String(localized: "settings.popover.showPacing"), isOn: $settingsStore.display.popoverConfig.showPacing)
+                .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.popover.showSpend"), isOn: $settingsStore.display.popoverConfig.showSpend)
+                .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.popover.showTimestamp"), isOn: $settingsStore.display.popoverConfig.showTimestamp)
+                .tint(DS.Pastel.green)
         } header: {
             Text(String(localized: "settings.popover.sections.header"))
         } footer: {
