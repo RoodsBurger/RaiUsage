@@ -13,6 +13,10 @@ struct MonitoringView: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var vendorStatusStore: VendorStatusStore
+    /// App-level history-derived activity cache backing the enterprise
+    /// "5H/7D ACTIVITY" tiles. Injected at the hosting root (it outlives the
+    /// dashboard window - the menu bar pins read it too).
+    @EnvironmentObject private var activityStore: ActivityStore
 
     /// Lightweight 7d daily-buckets store for the inline tile insights.
     /// Loaded once on appear, refreshed if older than 60s. Owned by
@@ -69,8 +73,24 @@ struct MonitoringView: View {
                 refreshLastUpdateText()
             }
         }
-        .onAppear { insightsStore.warmIfStale() }
-        .onChange(of: usageStore.lastUpdate) { _, _ in refreshLastUpdateText() }
+        .onAppear {
+            insightsStore.warmIfStale()
+            warmActivityIfEnterprise()
+        }
+        .onChange(of: usageStore.lastUpdate) { _, _ in
+            refreshLastUpdateText()
+            // Keep the activity tiles on the usage-refresh cadence while the
+            // dashboard is open (still bounded by the store's 60s stale gate).
+            warmActivityIfEnterprise()
+        }
+        .onChange(of: usageStore.planType) { _, _ in warmActivityIfEnterprise() }
+    }
+
+    /// JSONL scans only ever happen for enterprise - personal plans keep
+    /// their API tiles and never touch the history cache from here.
+    private func warmActivityIfEnterprise() {
+        guard usageStore.planType == .enterprise else { return }
+        activityStore.warmIfStale()
     }
 
     /// Maps a tile id to the matching `ModelFamily` (nil = all-models).
@@ -422,6 +442,20 @@ struct MonitoringView: View {
 
     // MARK: - Metrics grid
 
+    /// One slot in the secondary grid: a percentage window tile or an
+    /// enterprise history-derived activity tile. `id` keys the row ForEach.
+    private enum GridTile {
+        case metric(TileDescriptor)
+        case activity(ActivityTileDescriptor)
+
+        var id: String {
+            switch self {
+            case .metric(let tile): tile.id
+            case .activity(let tile): tile.id
+            }
+        }
+    }
+
     private var metricsGrid: some View {
         // Width-filling rows instead of a fixed 3-column grid: the number of
         // secondary tiles varies (Design/Opus/Cowork are shown only when their
@@ -437,42 +471,53 @@ struct MonitoringView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: DS.Spacing.sm) {
                     ForEach(row, id: \.id) { tile in
-                        MetricTile(
-                            id: tile.id,
-                            label: tile.label,
-                            icon: tile.icon,
-                            pct: tile.pct,
-                            resetText: tile.resetText,
-                            resetDate: tile.resetDate,
-                            windowDuration: tile.windowDuration,
-                            smartEnabled: settingsStore.smartColorEnabled,
-                            pacingMargin: Double(settingsStore.pacingMargin),
-                            smartProfile: settingsStore.smartColorProfile,
-                            thresholds: settingsStore.thresholds,
-                            insights: hasRichBack(tileId: tile.id)
-                                ? insightsStore.snapshot(for: tileFamily(for: tile.id))
-                                : nil,
-                            insightsLoaded: insightsStore.hasLoaded,
-                            expanded: tilesExpanded,
-                            onToggle: { tilesExpanded.toggle() }
-                        )
+                        gridTileView(tile)
                     }
                 }
             }
         }
     }
 
-    private var secondaryTiles: [TileDescriptor] {
+    @ViewBuilder
+    private func gridTileView(_ tile: GridTile) -> some View {
+        switch tile {
+        case .activity(let descriptor):
+            ActivityTile(descriptor: descriptor)
+        case .metric(let tile):
+            MetricTile(
+                id: tile.id,
+                label: tile.label,
+                icon: tile.icon,
+                pct: tile.pct,
+                resetText: tile.resetText,
+                resetDate: tile.resetDate,
+                windowDuration: tile.windowDuration,
+                smartEnabled: settingsStore.smartColorEnabled,
+                pacingMargin: Double(settingsStore.pacingMargin),
+                smartProfile: settingsStore.smartColorProfile,
+                thresholds: settingsStore.thresholds,
+                insights: hasRichBack(tileId: tile.id)
+                    ? insightsStore.snapshot(for: tileFamily(for: tile.id))
+                    : nil,
+                insightsLoaded: insightsStore.hasLoaded,
+                expanded: tilesExpanded,
+                onToggle: { tilesExpanded.toggle() }
+            )
+        }
+    }
+
+    private var secondaryTiles: [GridTile] {
         let weekWindow: TimeInterval = 7 * 86_400
         let plan = usageStore.planType
-        var tiles: [TileDescriptor] = []
+        var tiles: [GridTile] = []
         // On enterprise the spend hero replaces the session hero, so a TRACKED
-        // 5h window re-enters the grid as a normal tile; untracked stays hidden.
-        // Non-enterprise never reaches this branch - the session data lives in
-        // the hero there, exactly as before.
+        // 5h window re-enters the grid as a normal tile; an untracked one is
+        // replaced by the history-derived 5H ACTIVITY tile in the same slot.
+        // Non-enterprise never reaches either branch - the session data lives
+        // in the hero there, exactly as before.
         if EnterprisePresentation.usesSpendHero(planType: plan, extraUsage: usageStore.extraUsage),
            EnterprisePresentation.isTracked(usageStore.lastUsage?.fiveHour) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "session",
                 label: String(localized: "metric.session"),
                 icon: "clock.fill",
@@ -480,13 +525,25 @@ struct MonitoringView: View {
                 resetText: usageStore.fiveHourReset.isEmpty ? nil : usageStore.fiveHourReset,
                 resetDate: usageStore.lastUsage?.fiveHour?.resetsAtDate,
                 windowDuration: 5 * 3600
-            ))
+            )))
+        } else if EnterprisePresentation.showsFiveHourActivityTile(
+            planType: plan, extraUsage: usageStore.extraUsage, bucket: usageStore.lastUsage?.fiveHour
+        ) {
+            tiles.append(.activity(ActivityTileDescriptor(
+                id: "activity5h",
+                label: String(localized: "metric.activity5h"),
+                icon: "waveform.path.ecg",
+                tokens: activityStore.fiveHour?.activeTokens,
+                sessions: activityStore.fiveHour?.sessionCount,
+                loaded: activityStore.hasLoaded
+            )))
         }
         // Window tiles hide only when enterprise AND untracked (no reset
         // timestamp, zero utilization) - see EnterprisePresentation. Every
-        // other plan keeps every tile unconditionally, as before.
+        // other plan keeps every tile unconditionally, as before. The hidden
+        // enterprise Weekly slot gets the 7D ACTIVITY tile instead.
         if EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDay) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "weekly",
                 label: String(localized: "metric.weekly"),
                 icon: "calendar",
@@ -494,10 +551,19 @@ struct MonitoringView: View {
                 resetText: usageStore.sevenDayReset,
                 resetDate: usageStore.lastUsage?.sevenDay?.resetsAtDate,
                 windowDuration: weekWindow
-            ))
+            )))
+        } else if EnterprisePresentation.showsSevenDayActivityTile(planType: plan, bucket: usageStore.lastUsage?.sevenDay) {
+            tiles.append(.activity(ActivityTileDescriptor(
+                id: "activity7d",
+                label: String(localized: "metric.activity7d"),
+                icon: "chart.bar.fill",
+                tokens: activityStore.sevenDay?.activeTokens,
+                sessions: activityStore.sevenDay?.sessionCount,
+                loaded: activityStore.hasLoaded
+            )))
         }
         if EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDaySonnet) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "sonnet",
                 label: String(localized: "metric.sonnet"),
                 icon: "text.quote",
@@ -505,11 +571,11 @@ struct MonitoringView: View {
                 resetText: usageStore.sonnetReset.isEmpty ? nil : usageStore.sonnetReset,
                 resetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
                 windowDuration: weekWindow
-            ))
+            )))
         }
         if usageStore.hasDesign,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayDesign) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "design",
                 label: String(localized: "metric.design"),
                 icon: "paintbrush.pointed.fill",
@@ -517,11 +583,11 @@ struct MonitoringView: View {
                 resetText: usageStore.designReset.isEmpty ? nil : usageStore.designReset,
                 resetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
                 windowDuration: weekWindow
-            ))
+            )))
         }
         if usageStore.hasOpus,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayOpus) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "opus",
                 label: "Opus",
                 icon: "brain.head.profile",
@@ -529,11 +595,11 @@ struct MonitoringView: View {
                 resetText: nil,
                 resetDate: nil,
                 windowDuration: weekWindow
-            ))
+            )))
         }
         if usageStore.hasCowork,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayCowork) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "cowork",
                 label: "Cowork",
                 icon: "person.2.fill",
@@ -541,11 +607,11 @@ struct MonitoringView: View {
                 resetText: nil,
                 resetDate: nil,
                 windowDuration: weekWindow
-            ))
+            )))
         }
         if usageStore.hasFable,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayFable) {
-            tiles.append(TileDescriptor(
+            tiles.append(.metric(TileDescriptor(
                 id: "fable",
                 label: String(localized: "metric.fable"),
                 icon: "books.vertical.fill",
@@ -553,7 +619,7 @@ struct MonitoringView: View {
                 resetText: usageStore.fableReset.isEmpty ? nil : usageStore.fableReset,
                 resetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
                 windowDuration: weekWindow
-            ))
+            )))
         }
         return tiles
     }

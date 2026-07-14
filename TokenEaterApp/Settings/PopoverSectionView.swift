@@ -28,6 +28,27 @@ struct PopoverSectionView: View {
             .scrollContentBackground(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onAppear { ensureActivityRows() }
+        .onChange(of: usageStore.planType) { _, _ in ensureActivityRows() }
+    }
+
+    private var isEnterprise: Bool { usageStore.planType == .enterprise }
+
+    /// On enterprise, migrates a saved config that predates the activity
+    /// metrics: appends them (hidden, opt-in) to `metricOrder` so they appear
+    /// in the list below and reorder like any other row. One-shot per metric -
+    /// a config that already contains them is untouched. No-op elsewhere, so
+    /// personal configs never change.
+    private func ensureActivityRows() {
+        guard isEnterprise else { return }
+        var config = settingsStore.display.popoverConfig
+        var changed = false
+        for metric in [MetricID.fiveHourActivity, .sevenDayActivity] where !config.metricOrder.contains(metric) {
+            config.metricOrder.append(metric)
+            config.hiddenMetrics.insert(metric)
+            changed = true
+        }
+        if changed { settingsStore.display.popoverConfig = config }
     }
 
     // MARK: - Live preview
@@ -50,15 +71,20 @@ struct PopoverSectionView: View {
 
     // MARK: - Metrics
 
+    /// The rows the list renders: the saved order, minus the enterprise-only
+    /// activity metrics on personal plans (they add no value where the API
+    /// windows exist - see `MetricID.menuBarPinnable(isEnterprise:)`).
+    private var displayedMetricOrder: [MetricID] {
+        settingsStore.display.popoverConfig.metricOrder.filter { isEnterprise || !$0.isActivity }
+    }
+
     private var metricsSection: some View {
         Section {
             List {
-                ForEach(settingsStore.display.popoverConfig.metricOrder, id: \.self) { metric in
+                ForEach(displayedMetricOrder, id: \.self) { metric in
                     metricRow(metric)
                 }
-                .onMove { source, destination in
-                    settingsStore.display.popoverConfig.metricOrder.move(fromOffsets: source, toOffset: destination)
-                }
+                .onMove(perform: moveMetrics)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -70,14 +96,25 @@ struct PopoverSectionView: View {
         }
     }
 
+    /// Applies a drag-reorder expressed in displayed-list indices. On
+    /// enterprise the displayed list IS `metricOrder`, so this is the plain
+    /// move; on a personal plan with a stale enterprise config, the filtered
+    /// activity entries re-append after the reordered visible rows.
+    private func moveMetrics(from source: IndexSet, to destination: Int) {
+        var visible = displayedMetricOrder
+        visible.move(fromOffsets: source, toOffset: destination)
+        let filteredOut = settingsStore.display.popoverConfig.metricOrder.filter { !visible.contains($0) }
+        settingsStore.display.popoverConfig.metricOrder = visible + filteredOut
+    }
+
     private var rowListHeight: CGFloat {
-        let rows = settingsStore.display.popoverConfig.metricOrder.count
+        let rows = displayedMetricOrder.count
         return min(CGFloat(max(rows, 1)) * 32 + 8, 240)
     }
 
     private func metricRow(_ metric: MetricID) -> some View {
         let config = settingsStore.display.popoverConfig
-        let isVisible = !config.hiddenMetrics.contains(metric)
+        let isVisible = config.isVisible(metric)
         return HStack(spacing: 10) {
             Button {
                 toggleVisibility(metric)
@@ -102,11 +139,7 @@ struct PopoverSectionView: View {
     /// collapses its metrics block when the list ends up empty.
     private func toggleVisibility(_ metric: MetricID) {
         var config = settingsStore.display.popoverConfig
-        if config.hiddenMetrics.contains(metric) {
-            config.hiddenMetrics.remove(metric)
-        } else {
-            config.hiddenMetrics.insert(metric)
-        }
+        config.setVisible(metric, !config.isVisible(metric))
         settingsStore.display.popoverConfig = config
     }
 
@@ -147,8 +180,12 @@ private struct PopoverPreviewCard: View {
     @EnvironmentObject private var usageStore: UsageStore
     let config: PopoverConfig
 
-    private var rows: [PopoverMetricRow] {
-        PopoverView.sampleMetricRows(config: config, settingsStore: settingsStore)
+    private var rows: [PopoverRowEntry] {
+        PopoverView.sampleRows(
+            config: config,
+            settingsStore: settingsStore,
+            isEnterprise: usageStore.planType == .enterprise
+        )
     }
 
     var body: some View {
@@ -160,8 +197,13 @@ private struct PopoverPreviewCard: View {
             if !rows.isEmpty {
                 Divider()
                 VStack(spacing: 10) {
-                    ForEach(rows) { row in
-                        PopoverMetricRowView(row: row)
+                    ForEach(rows) { entry in
+                        switch entry {
+                        case .metric(let row):
+                            PopoverMetricRowView(row: row)
+                        case .activity(let row):
+                            PopoverActivityRowView(row: row)
+                        }
                     }
                 }
                 .padding(.horizontal, 14)

@@ -36,4 +36,20 @@ enum EnterprisePresentation {
     static func showsSpendCard(planType: PlanType, extraUsage: ExtraUsage?) -> Bool {
         extraUsage?.isEnabled == true && !usesSpendHero(planType: planType, extraUsage: extraUsage)
     }
+
+    /// The 5h grid slot's replacement when enterprise hides the untracked
+    /// window: a history-derived "5H ACTIVITY" tile. Requires the spend hero
+    /// to own the top slot - with the session hero still up (no spend pool),
+    /// the 5h window already renders there. A TRACKED 5h window keeps its
+    /// normal percentage tile instead.
+    static func showsFiveHourActivityTile(planType: PlanType, extraUsage: ExtraUsage?, bucket: UsageBucket?) -> Bool {
+        usesSpendHero(planType: planType, extraUsage: extraUsage) && !isTracked(bucket)
+    }
+
+    /// The weekly grid slot's replacement: enterprise + untracked weekly
+    /// window shows the "7D ACTIVITY" tile where E1 hid the Weekly tile.
+    /// Every other plan (and a tracked weekly window) keeps the % tile.
+    static func showsSevenDayActivityTile(planType: PlanType, bucket: UsageBucket?) -> Bool {
+        planType == .enterprise && !isTracked(bucket)
+    }
 }

@@ -102,6 +102,43 @@ struct EnterprisePresentationTests {
             #expect(EnterprisePresentation.showsSpendCard(planType: plan, extraUsage: nil) == false, "\(plan)")
         }
     }
+
+    // MARK: - Activity tiles (history-derived stand-ins for hidden windows)
+
+    @Test("5h activity tile shows only with the spend hero up and an untracked window")
+    func fiveHourActivityTileGating() {
+        for bucket in [untracked, nil] {
+            #expect(EnterprisePresentation.showsFiveHourActivityTile(
+                planType: .enterprise, extraUsage: enabledPool, bucket: bucket) == true)
+        }
+        // A tracked 5h window keeps its percentage tile instead.
+        #expect(EnterprisePresentation.showsFiveHourActivityTile(
+            planType: .enterprise, extraUsage: enabledPool, bucket: trackedBusy) == false)
+        // Session hero still up (no spend pool) -> the window renders there.
+        #expect(EnterprisePresentation.showsFiveHourActivityTile(
+            planType: .enterprise, extraUsage: disabledPool, bucket: untracked) == false)
+    }
+
+    @Test("7d activity tile replaces the hidden weekly tile on enterprise only")
+    func sevenDayActivityTileGating() {
+        for bucket in [untracked, nil] {
+            #expect(EnterprisePresentation.showsSevenDayActivityTile(planType: .enterprise, bucket: bucket) == true)
+        }
+        #expect(EnterprisePresentation.showsSevenDayActivityTile(planType: .enterprise, bucket: trackedBusy) == false)
+        #expect(EnterprisePresentation.showsSevenDayActivityTile(planType: .enterprise, bucket: trackedIdle) == false)
+    }
+
+    @Test("personal plans never show activity tiles, whatever the data looks like")
+    func activityTilesNeverOnPersonal() {
+        for plan in nonEnterprisePlans {
+            for bucket in [untracked, trackedBusy, nil] {
+                #expect(EnterprisePresentation.showsFiveHourActivityTile(
+                    planType: plan, extraUsage: enabledPool, bucket: bucket) == false, "\(plan)")
+                #expect(EnterprisePresentation.showsSevenDayActivityTile(
+                    planType: plan, bucket: bucket) == false, "\(plan)")
+            }
+        }
+    }
 }
 
 /// Enterprise-aware Extra Credits labels (menu bar prefix + display label).

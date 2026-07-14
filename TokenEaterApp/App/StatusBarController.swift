@@ -40,17 +40,20 @@ final class StatusBarController: NSObject {
     private let usageStore: UsageStore
     private let settingsStore: SettingsStore
     private let vendorStatusStore: VendorStatusStore
+    private let activityStore: ActivityStore
     private let tokenFileMonitor: TokenFileMonitorProtocol
 
     init(
         usageStore: UsageStore,
         settingsStore: SettingsStore,
         vendorStatusStore: VendorStatusStore,
+        activityStore: ActivityStore,
         tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
     ) {
         self.usageStore = usageStore
         self.settingsStore = settingsStore
         self.vendorStatusStore = vendorStatusStore
+        self.activityStore = activityStore
         self.tokenFileMonitor = tokenFileMonitor
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.statusItem.isVisible = settingsStore.showMenuBar
@@ -167,6 +170,12 @@ final class StatusBarController: NSObject {
             .environmentObject(usageStore)
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
+            .environmentObject(activityStore)
+            // Tint the vibrancy material toward the app's elevated-card color
+            // so the popover matches the dashboard surfaces instead of the
+            // material's neutral gray; sub-1.0 alpha keeps a hint of the
+            // RaiDrive-style translucency underneath.
+            .background(DS.Pastel.card.opacity(0.72))
         let hosting = NSHostingController(rootView: AnyView(popoverView))
         let fitSize = hosting.view.fittingSize
         hosting.view.frame = NSRect(origin: .zero, size: fitSize)
@@ -195,13 +204,15 @@ final class StatusBarController: NSObject {
         Publishers.MergeMany(
             usageStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             settingsStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            vendorStatusStore.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+            vendorStatusStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            activityStore.objectWillChange.map { _ in () }.eraseToAnyPublisher()
         )
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.updateMenuBarIcon()
             self?.updateCountdownTimer()
             self?.resizePopoverPanelIfNeeded()
+            self?.warmActivityIfNeeded()
         }
         .store(in: &cancellables)
 
@@ -395,6 +406,24 @@ final class StatusBarController: NSObject {
         }
     }
 
+    // MARK: - Activity cache
+
+    /// Warms the history-derived activity cache, but only when an enterprise
+    /// surface can actually display it: the menu bar has an activity pin, the
+    /// popover has a visible activity row, or the dashboard window is open
+    /// (its enterprise grid shows the activity tiles). Personal plans never
+    /// trigger a JSONL scan, and menu bar renders only read cached values -
+    /// `ActivityStore.warmIfStale` bounds the scans to one per minute.
+    private func warmActivityIfNeeded() {
+        guard usageStore.planType == .enterprise else { return }
+        let menuBarWants = settingsStore.display.menuBarConfig.pinned.contains { $0.id.isActivity }
+        let popoverConfig = settingsStore.display.popoverConfig
+        let popoverWants = popoverConfig.metricOrder.contains { $0.isActivity && !popoverConfig.hiddenMetrics.contains($0) }
+        let dashboardWants = dashboardWindow != nil
+        guard menuBarWants || popoverWants || dashboardWants else { return }
+        activityStore.warmIfStale()
+    }
+
     // MARK: - Menu Bar Icon
 
     private func updateMenuBarIcon() {
@@ -445,6 +474,8 @@ final class StatusBarController: NSObject {
             extraCreditsLimitMinorUnits: usageStore.extraUsage?.monthlyLimit ?? 0,
             extraCreditsCurrency: usageStore.extraUsage?.currency ?? "USD",
             isEnterprise: usageStore.planType == .enterprise,
+            fiveHourActivityTokens: usageStore.planType == .enterprise ? activityStore.fiveHour?.activeTokens : nil,
+            sevenDayActivityTokens: usageStore.planType == .enterprise ? activityStore.sevenDay?.activeTokens : nil,
             outageActive: settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded,
             outageHealth: vendorStatusStore.worstHealth,
             nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) },
@@ -607,6 +638,9 @@ final class StatusBarController: NSObject {
 
     private func showPopover() {
         guard let button = statusItem.button, let buttonWindow = button.window else { return }
+        // Fresh activity numbers for the popover's enterprise rows (no-op on
+        // personal plans or when the cache is younger than a minute).
+        warmActivityIfNeeded()
         installPopoverContent()
         guard let panel = popoverPanel, let hosting = popoverHostingController else { return }
 
@@ -664,6 +698,7 @@ final class StatusBarController: NSObject {
             .environmentObject(usageStore)
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
+            .environmentObject(activityStore)
 
         let isOnboarding = !settingsStore.hasCompletedOnboarding
         let onboardingSize = NSSize(

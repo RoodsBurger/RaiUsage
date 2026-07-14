@@ -102,13 +102,26 @@ struct MenuBarConfigTests {
         #expect(config.fixedWidth == MenuBarConfig().fixedWidth)
     }
 
-    @Test("menuBarPinnable excludes sessionReset, opus and cowork")
+    @Test("menuBarPinnable excludes sessionReset, opus, cowork and the activity metrics")
     func pinnableExcludesSessionReset() {
         #expect(!MetricID.menuBarPinnable.contains(.sessionReset))
         #expect(!MetricID.menuBarPinnable.contains(.opus))
         #expect(!MetricID.menuBarPinnable.contains(.cowork))
+        #expect(!MetricID.menuBarPinnable.contains(.fiveHourActivity))
+        #expect(!MetricID.menuBarPinnable.contains(.sevenDayActivity))
         #expect(MetricID.menuBarPinnable.contains(.fiveHour))
         #expect(MetricID.menuBarPinnable.contains(.serviceStatus))
-        #expect(MetricID.menuBarPinnable.count == MetricID.allCases.count - 3)
+        #expect(MetricID.menuBarPinnable.count == MetricID.allCases.count - 5)
+    }
+
+    @Test("plan-aware pinnable list offers the activity pins only on enterprise")
+    func pinnablePlanAware() {
+        let personal = MetricID.menuBarPinnable(isEnterprise: false)
+        #expect(personal == MetricID.menuBarPinnable)
+        let enterprise = MetricID.menuBarPinnable(isEnterprise: true)
+        #expect(enterprise.contains(.fiveHourActivity))
+        #expect(enterprise.contains(.sevenDayActivity))
+        // Everything the personal list offers stays offered, in order.
+        #expect(Array(enterprise.prefix(personal.count)) == personal)
     }
 }

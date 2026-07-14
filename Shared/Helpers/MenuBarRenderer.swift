@@ -81,6 +81,13 @@ enum MenuBarRenderer {
         /// renders as "Org" (the pool reads as "Organization usage" there).
         let isEnterprise: Bool
 
+        /// History-derived activity totals for the enterprise-only 5h/7d
+        /// activity pins. nil until the local JSONL cache has loaded (or when
+        /// there is no history at all) - the pin renders "—" then. Always
+        /// pre-computed by `ActivityStore`; the render path never parses.
+        let fiveHourActivityTokens: Int?
+        let sevenDayActivityTokens: Int?
+
         // Outage badge - set by StatusBarController from VendorStatusStore.
         let outageActive: Bool
         let outageHealth: VendorHealth
@@ -163,6 +170,8 @@ enum MenuBarRenderer {
                 extraCreditsLimitMinorUnits: 50_000, // $500
                 extraCreditsCurrency: "USD",
                 isEnterprise: isEnterprise,
+                fiveHourActivityTokens: 301_000,
+                sevenDayActivityTokens: 2_450_000,
                 outageActive: false,
                 outageHealth: .healthy,
                 nextPollSeconds: nil,
@@ -373,6 +382,9 @@ enum MenuBarRenderer {
             case .extraCredits: return data.hasExtraCredits
             case .weeklyPacing: return data.hasWeeklyPacing
             case .serviceStatus: return true
+            // Enterprise-only: the activity pins have no meaning where real
+            // API windows exist, so a stale config never shows them elsewhere.
+            case .fiveHourActivity, .sevenDayActivity: return data.isEnterprise
             // Popover-only - never actually pinned (excluded from
             // `MetricID.menuBarPinnable`), kept here only for switch exhaustiveness.
             case .opus, .cowork: return false
@@ -468,6 +480,9 @@ enum MenuBarRenderer {
             return data.outageHealth.rawValue
         case .sessionReset:
             return zoneRank(pct: data.fiveHourPct, resetDate: data.fiveHourResetDate, windowDuration: windowDuration(for: .fiveHour), data: data)
+        // A raw activity count carries no risk zone.
+        case .fiveHourActivity, .sevenDayActivity:
+            return 0
         // Popover-only - never actually pinned, see `visiblePins`.
         case .opus, .cowork:
             return 0
@@ -498,6 +513,10 @@ enum MenuBarRenderer {
             return buildServiceStatus(pin, data: data)
         case .sessionReset:
             return buildCountdownOnly(data: data)
+        case .fiveHourActivity:
+            return buildActivityMetric(pin, tokens: data.fiveHourActivityTokens, data: data, worstCase: worstCase)
+        case .sevenDayActivity:
+            return buildActivityMetric(pin, tokens: data.sevenDayActivityTokens, data: data, worstCase: worstCase)
         // Popover-only - never actually pinned, see `visiblePins`.
         case .opus, .cowork:
             return NSAttributedString()
@@ -626,6 +645,34 @@ enum MenuBarRenderer {
             text = "\(worstCase ? 100 : max(0, 100 - data.extraCreditsPct))%"
         case .percentUsed:
             text = "\(worstCase ? 100 : data.extraCreditsPct)%"
+        }
+        str.append(NSAttributedString(string: text, attributes: valueAttributes))
+        return str
+    }
+
+    /// History-derived activity pin (enterprise-only): a compact token count
+    /// via `TokenFormatter` ("5h 301k"), "—" until the JSONL cache has loaded.
+    /// A raw activity count has no risk zone, so `.risk` mode gets a neutral
+    /// (adaptive text color) dot to keep the pin rhythm aligned with its
+    /// neighbors. `pin.value` is ignored - there is no percentage to style.
+    private static func buildActivityMetric(_ pin: PinnedMetricConfig, tokens: Int?, data: RenderData, worstCase: Bool) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        if data.menuBarConfig.colorMode == .risk {
+            appendDot(textColor(data), to: str)
+        }
+        appendPrefix(pin, to: str, data: data)
+
+        let valueAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: textColor(data),
+        ]
+        let text: String
+        if worstCase {
+            // TokenFormatter never emits a decimal at/above 10 of a unit, so
+            // the widest realistic shapes are "888k" / "8.8M" / "888M".
+            text = widest(["888k", "8.8M", "888M"], attributes: valueAttributes)
+        } else {
+            text = tokens.map(TokenFormatter.compact) ?? "\u{2014}"
         }
         str.append(NSAttributedString(string: text, attributes: valueAttributes))
         return str

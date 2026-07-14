@@ -168,6 +168,8 @@ private func makeRenderData(
     extraCreditsLimitMinorUnits: Double = 500_000,
     extraCreditsCurrency: String = "USD",
     isEnterprise: Bool = false,
+    fiveHourActivityTokens: Int? = 301_000,
+    sevenDayActivityTokens: Int? = 2_450_000,
     outageActive: Bool = false,
     outageHealth: VendorHealth = .healthy,
     nextPollSeconds: Int? = nil,
@@ -228,6 +230,8 @@ private func makeRenderData(
         extraCreditsLimitMinorUnits: extraCreditsLimitMinorUnits,
         extraCreditsCurrency: extraCreditsCurrency,
         isEnterprise: isEnterprise,
+        fiveHourActivityTokens: fiveHourActivityTokens,
+        sevenDayActivityTokens: sevenDayActivityTokens,
         outageActive: outageActive,
         outageHealth: outageHealth,
         nextPollSeconds: nextPollSeconds,
@@ -821,5 +825,78 @@ struct MenuBarExtraCreditsRenderTests {
         )
         let image = MenuBarRenderer.renderUncached(data)
         #expect(image.isTemplate == true)
+    }
+}
+
+@Suite("MenuBarRenderer activity pins (enterprise)")
+struct MenuBarActivityPinTests {
+
+    @Test("activity pin renders the short label plus TokenFormatter value")
+    func rendersTokenCount() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHourActivity, prefix: .shortLabel)],
+            colorMode: .monochrome,
+            isEnterprise: true,
+            fiveHourActivityTokens: 301_000
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "5h 301k")
+    }
+
+    @Test("7d activity pin renders its own cached total")
+    func rendersSevenDayCount() {
+        let data = makeRenderData(
+            pinned: [.init(id: .sevenDayActivity, prefix: .shortLabel)],
+            colorMode: .monochrome,
+            isEnterprise: true,
+            sevenDayActivityTokens: 2_400_000
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "7d 2.4M")
+    }
+
+    @Test("empty cache renders an em dash placeholder")
+    func rendersPlaceholderWhenNil() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHourActivity, prefix: .none)],
+            colorMode: .monochrome,
+            isEnterprise: true,
+            fiveHourActivityTokens: nil
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "\u{2014}")
+    }
+
+    @Test("activity pins are hidden on non-enterprise plans even when configured")
+    func hiddenOnPersonalPlans() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHourActivity), .init(id: .sevenDayActivity)],
+            colorMode: .monochrome,
+            isEnterprise: false
+        )
+        #expect(MenuBarRenderer.visiblePins(data).isEmpty)
+        #expect(MenuBarRenderer.buildLine(data: data).string.isEmpty)
+    }
+
+    @Test("worst-case width covers the live rendered activity line")
+    func worstCaseCoversNatural() {
+        let data = makeRenderData(
+            pinned: [.init(id: .sevenDayActivity, prefix: .shortLabel)],
+            fixedWidth: true,
+            isEnterprise: true,
+            sevenDayActivityTokens: 999_000_000
+        )
+        let naturalWidth = MenuBarRenderer.buildLine(data: data).size().width
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: data) >= naturalWidth)
+    }
+
+    @Test("risk mode keeps a neutral dot so the pin width stays stable")
+    func riskModeNeutralDot() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHourActivity, prefix: .none)],
+            colorMode: .risk,
+            isEnterprise: true,
+            fiveHourActivityTokens: 12_000
+        )
+        let line = MenuBarRenderer.buildLine(data: data).string
+        #expect(line.hasPrefix("\u{25CF} "))
+        #expect(line.hasSuffix("12k"))
     }
 }

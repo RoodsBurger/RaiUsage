@@ -57,13 +57,35 @@ struct PopoverConfig: Codable, Equatable, Sendable {
         metricOrder.filter { !hiddenMetrics.contains($0) && available.contains($0) }
     }
 
+    /// Whether a metric is currently checked in the settings list: it must be
+    /// part of the render order AND not hidden. A metric absent from
+    /// `metricOrder` (e.g. an activity metric on a config saved before those
+    /// existed) reads as not visible.
+    func isVisible(_ metric: MetricID) -> Bool {
+        metricOrder.contains(metric) && !hiddenMetrics.contains(metric)
+    }
+
+    /// Shows/hides a metric, appending it to the render order first when a
+    /// previously-saved config predates it - `visibleMetrics` only renders
+    /// metrics present in `metricOrder`.
+    mutating func setVisible(_ metric: MetricID, _ visible: Bool) {
+        if visible {
+            if !metricOrder.contains(metric) { metricOrder.append(metric) }
+            hiddenMetrics.remove(metric)
+        } else {
+            hiddenMetrics.insert(metric)
+        }
+    }
+
     /// First-run defaults for enterprise plans, where the 5h/weekly windows
-    /// are typically untracked: only the Design row shows, plus the spend
-    /// section (rendered as "Organization usage") and the updated timestamp.
-    /// Applied only when no config was ever saved - see
+    /// are typically untracked: the Design row plus the history-derived 5h/7d
+    /// activity rows show, along with the spend section (rendered as
+    /// "Organization usage") and the updated timestamp. Applied only when no
+    /// config was ever saved - see
     /// `DisplaySettingsStore.applyEnterpriseDefaultsIfFirstRun`.
     static var enterpriseDefault: PopoverConfig {
         PopoverConfig(
+            metricOrder: MetricID.popoverDefaultOrder + [.fiveHourActivity, .sevenDayActivity],
             hiddenMetrics: Set(MetricID.popoverDefaultOrder).subtracting([.design]),
             showPacing: false,
             showSpend: true,

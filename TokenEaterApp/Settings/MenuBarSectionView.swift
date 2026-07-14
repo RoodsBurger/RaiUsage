@@ -195,7 +195,10 @@ struct MenuBarSectionView: View {
 
     private var availableToAdd: [MetricID] {
         let pinnedIDs = Set(settingsStore.display.menuBarConfig.pinned.map(\.id))
-        return MetricID.menuBarPinnable.filter { !pinnedIDs.contains($0) }
+        // Plan-aware: the history-derived activity pins are offered only on
+        // enterprise, where the API's 5h/weekly windows are untracked.
+        return MetricID.menuBarPinnable(isEnterprise: usageStore.planType == .enterprise)
+            .filter { !pinnedIDs.contains($0) }
     }
 
     private var addMetricMenu: some View {
@@ -221,7 +224,8 @@ struct MenuBarSectionView: View {
     private func supportsValueStyle(_ id: MetricID) -> Bool {
         switch id {
         case .fiveHour, .sevenDay, .sonnet, .design, .fable, .extraCredits: return true
-        case .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork: return false
+        case .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
+             .fiveHourActivity, .sevenDayActivity: return false
         }
     }
 
@@ -232,7 +236,8 @@ struct MenuBarSectionView: View {
     private func supportsCountdown(_ id: MetricID) -> Bool {
         switch id {
         case .fiveHour, .sevenDay, .sonnet, .design, .fable: return true
-        case .extraCredits, .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork: return false
+        case .extraCredits, .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
+             .fiveHourActivity, .sevenDayActivity: return false
         }
     }
 

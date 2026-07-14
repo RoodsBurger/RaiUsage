@@ -94,13 +94,65 @@ struct PopoverConfigTests {
         #expect(config.visibleMetrics(available: available) == [.opus, .sonnet, .cowork, .fable, .design])
     }
 
+    // MARK: - Visibility helpers (activity metrics)
+
+    @Test("isVisible requires presence in metricOrder AND not hidden")
+    func isVisibleRequiresOrderMembership() {
+        var config = PopoverConfig()
+        // A default config predates the activity metrics -> not visible.
+        #expect(!config.isVisible(.fiveHourActivity))
+        #expect(config.isVisible(.fiveHour))
+        config.hiddenMetrics = [.fiveHour]
+        #expect(!config.isVisible(.fiveHour))
+    }
+
+    @Test("setVisible(true) appends a missing metric to metricOrder")
+    func setVisibleAppendsMissingMetric() {
+        var config = PopoverConfig()
+        config.setVisible(.sevenDayActivity, true)
+        #expect(config.metricOrder.last == .sevenDayActivity)
+        #expect(config.isVisible(.sevenDayActivity))
+        let available = Set(MetricID.popoverDefaultOrder).union([.sevenDayActivity])
+        #expect(config.visibleMetrics(available: available).contains(.sevenDayActivity))
+    }
+
+    @Test("setVisible(true) never duplicates an existing metricOrder entry")
+    func setVisibleNoDuplicate() {
+        var config = PopoverConfig()
+        config.hiddenMetrics = [.design]
+        config.setVisible(.design, true)
+        #expect(config.metricOrder.filter { $0 == .design }.count == 1)
+        #expect(config.isVisible(.design))
+    }
+
+    @Test("setVisible(false) hides without touching the order")
+    func setVisibleFalseHides() {
+        var config = PopoverConfig()
+        config.setVisible(.fiveHour, false)
+        #expect(config.hiddenMetrics.contains(.fiveHour))
+        #expect(config.metricOrder == PopoverConfig().metricOrder)
+    }
+
+    @Test("activity metrics render only when the caller marks them available")
+    func activityMetricsGatedByAvailability() {
+        var config = PopoverConfig()
+        config.setVisible(.fiveHourActivity, true)
+        // Personal plans never put the activity ids in the available set.
+        #expect(!config.visibleMetrics(available: Set(MetricID.popoverDefaultOrder)).contains(.fiveHourActivity))
+        let enterpriseAvailable = Set(MetricID.popoverDefaultOrder).union([.fiveHourActivity, .sevenDayActivity])
+        #expect(config.visibleMetrics(available: enterpriseAvailable).contains(.fiveHourActivity))
+    }
+
     // MARK: - Enterprise first-run defaults
 
-    @Test("enterpriseDefault shows only the design row")
+    @Test("enterpriseDefault shows the design row plus both activity rows")
     func enterpriseDefaultMetrics() {
         let config = PopoverConfig.enterpriseDefault
+        // Personal-availability set -> the activity rows are filtered out.
         #expect(config.visibleMetrics(available: Set(MetricID.popoverDefaultOrder)) == [.design])
-        #expect(config.metricOrder == PopoverConfig().metricOrder)
+        let enterpriseAvailable = Set(MetricID.popoverDefaultOrder).union([.fiveHourActivity, .sevenDayActivity])
+        #expect(config.visibleMetrics(available: enterpriseAvailable) == [.design, .fiveHourActivity, .sevenDayActivity])
+        #expect(config.metricOrder == PopoverConfig().metricOrder + [.fiveHourActivity, .sevenDayActivity])
     }
 
     @Test("enterpriseDefault keeps spend and timestamp on, pacing off")

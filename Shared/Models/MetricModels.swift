@@ -17,6 +17,14 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
     case opus = "opus"
     /// Weekly Cowork utilization. Same popover-only scope as `.opus`.
     case cowork = "cowork"
+    /// History-derived 5h activity (token count from local Claude Code JSONL
+    /// logs). Enterprise-only: the usage API doesn't track the 5h window
+    /// there, so this pin stands in for it. Hidden from every picker on
+    /// personal plans (see `menuBarPinnable(isEnterprise:)`).
+    case fiveHourActivity = "fiveHourActivity"
+    /// History-derived 7d activity. Same enterprise-only scope as
+    /// `.fiveHourActivity`.
+    case sevenDayActivity = "sevenDayActivity"
 
     var label: String {
         switch self {
@@ -32,6 +40,8 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
         case .serviceStatus: return String(localized: "metric.serviceStatus")
         case .opus: return String(localized: "metric.opus")
         case .cowork: return String(localized: "metric.cowork")
+        case .fiveHourActivity: return String(localized: "metric.activity5h")
+        case .sevenDayActivity: return String(localized: "metric.activity7d")
         }
     }
 
@@ -49,7 +59,15 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
         case .serviceStatus: return ""
         case .opus: return "O"
         case .cowork: return "Cw"
+        case .fiveHourActivity: return "5h"
+        case .sevenDayActivity: return "7d"
         }
+    }
+
+    /// True for the history-derived activity metrics, which exist only on
+    /// enterprise plans (personal plans have real API windows).
+    var isActivity: Bool {
+        self == .fiveHourActivity || self == .sevenDayActivity
     }
 
     /// Enterprise-aware display label: the Extra Credits pool reads

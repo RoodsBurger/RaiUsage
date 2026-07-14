@@ -34,4 +34,25 @@ struct MetricIDTests {
         #expect(!MetricID.opus.label.isEmpty)
         #expect(!MetricID.cowork.label.isEmpty)
     }
+
+    @Test("activity metrics have stable raw values for persistence")
+    func activityRawValues() {
+        #expect(MetricID.fiveHourActivity.rawValue == "fiveHourActivity")
+        #expect(MetricID(rawValue: "fiveHourActivity") == .fiveHourActivity)
+        #expect(MetricID.sevenDayActivity.rawValue == "sevenDayActivity")
+        #expect(MetricID(rawValue: "sevenDayActivity") == .sevenDayActivity)
+    }
+
+    @Test("activity metrics are enumerable, labelled, and flagged isActivity")
+    func activityLabels() {
+        #expect(MetricID.allCases.contains(.fiveHourActivity))
+        #expect(MetricID.allCases.contains(.sevenDayActivity))
+        #expect(MetricID.fiveHourActivity.shortLabel == "5h")
+        #expect(MetricID.sevenDayActivity.shortLabel == "7d")
+        #expect(!MetricID.fiveHourActivity.label.isEmpty)
+        #expect(!MetricID.sevenDayActivity.label.isEmpty)
+        #expect(MetricID.fiveHourActivity.isActivity)
+        #expect(MetricID.sevenDayActivity.isActivity)
+        #expect(MetricID.allCases.filter(\.isActivity) == [.fiveHourActivity, .sevenDayActivity])
+    }
 }

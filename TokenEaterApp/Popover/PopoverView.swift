@@ -11,6 +11,7 @@ struct PopoverView: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var vendorStatusStore: VendorStatusStore
+    @EnvironmentObject private var activityStore: ActivityStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,8 +66,13 @@ struct PopoverView: View {
 
     private var metricsSection: some View {
         VStack(spacing: 10) {
-            ForEach(metricRows) { row in
-                PopoverMetricRowView(row: row)
+            ForEach(metricRows) { entry in
+                switch entry {
+                case .metric(let row):
+                    PopoverMetricRowView(row: row)
+                case .activity(let row):
+                    PopoverActivityRowView(row: row)
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -74,9 +80,14 @@ struct PopoverView: View {
     }
 
     /// Worst (highest-severity) `RiskZone` across every rendered metric row,
-    /// used for the header's tinted status disc.
+    /// used for the header's tinted status disc. Activity rows carry no risk
+    /// zone and don't participate.
     private var worstZone: RiskZone {
-        metricRows.map(\.zone).max(by: { $0.rank < $1.rank }) ?? .ok
+        metricRows.compactMap { entry -> RiskZone? in
+            if case .metric(let row) = entry { return row.zone }
+            return nil
+        }
+        .max(by: { $0.rank < $1.rank }) ?? .ok
     }
 
     // MARK: - Row building
@@ -86,22 +97,49 @@ struct PopoverView: View {
     /// Metrics session/weekly/sonnet always count as "available" (the popover
     /// showed them unconditionally before this became configurable); Opus,
     /// Cowork, Fable and Design only count once the API has actually returned
-    /// that bucket, same as `UsageStore.has*` always gated them.
+    /// that bucket, same as `UsageStore.has*` always gated them. The
+    /// history-derived activity rows exist only on enterprise, so a stale
+    /// config never renders them on a personal plan.
     private var availableMetrics: Set<MetricID> {
         var available: Set<MetricID> = [.fiveHour, .sevenDay, .sonnet]
         if usageStore.hasOpus { available.insert(.opus) }
         if usageStore.hasCowork { available.insert(.cowork) }
         if usageStore.hasFable { available.insert(.fable) }
         if usageStore.hasDesign { available.insert(.design) }
+        if usageStore.planType == .enterprise {
+            available.insert(.fiveHourActivity)
+            available.insert(.sevenDayActivity)
+        }
         return available
     }
 
     /// The configured, visible, available metrics, in the user's chosen order.
-    private var metricRows: [PopoverMetricRow] {
+    private var metricRows: [PopoverRowEntry] {
         popoverConfig.visibleMetrics(available: availableMetrics).compactMap(metricRow)
     }
 
-    private func metricRow(for metric: MetricID) -> PopoverMetricRow? {
+    private func metricRow(for metric: MetricID) -> PopoverRowEntry? {
+        switch metric {
+        case .fiveHourActivity:
+            return .activity(PopoverActivityRow(
+                id: "activity5h",
+                label: String(localized: "metric.activity5h"),
+                tokens: activityStore.fiveHour?.activeTokens,
+                sessions: activityStore.fiveHour?.sessionCount
+            ))
+        case .sevenDayActivity:
+            return .activity(PopoverActivityRow(
+                id: "activity7d",
+                label: String(localized: "metric.activity7d"),
+                tokens: activityStore.sevenDay?.activeTokens,
+                sessions: activityStore.sevenDay?.sessionCount
+            ))
+        default:
+            return percentRow(for: metric).map { .metric($0) }
+        }
+    }
+
+    private func percentRow(for metric: MetricID) -> PopoverMetricRow? {
         let showPacing = popoverConfig.showPacing
         switch metric {
         case .fiveHour:
@@ -176,6 +214,9 @@ struct PopoverView: View {
                 resetText: usageStore.designReset,
                 pacing: nil
             )
+        // Handled by `metricRow(for:)` before this switch is reached.
+        case .fiveHourActivity, .sevenDayActivity:
+            return nil
         // Not offered by `PopoverConfig` (extraCredits/pacing/status/reset are
         // their own sections or menu-bar-only) - never reached in practice.
         case .extraCredits, .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset:
@@ -206,15 +247,30 @@ struct PopoverView: View {
 // MARK: - Settings preview sample data
 
 extension PopoverView {
-    /// Sample metric rows for the Settings live preview - every metric in
+    /// Sample rows for the Settings live preview - every metric in
     /// `MetricID.popoverDefaultOrder` gets a plausible value, spanning the
     /// ok/warning/critical zones, so every configured row stays visible in
-    /// the preview regardless of the live account's actual data.
-    static func sampleMetricRows(config: PopoverConfig, settingsStore: SettingsStore) -> [PopoverMetricRow] {
-        let available = Set(MetricID.popoverDefaultOrder)
-        return config.visibleMetrics(available: available).compactMap { metric in
-            sampleRow(for: metric, showPacing: config.showPacing, settingsStore: settingsStore)
+    /// the preview regardless of the live account's actual data. Enterprise
+    /// additionally previews the history-derived activity rows.
+    static func sampleRows(config: PopoverConfig, settingsStore: SettingsStore, isEnterprise: Bool) -> [PopoverRowEntry] {
+        var available = Set(MetricID.popoverDefaultOrder)
+        if isEnterprise {
+            available.insert(.fiveHourActivity)
+            available.insert(.sevenDayActivity)
         }
+        return config.visibleMetrics(available: available).compactMap { metric in
+            if metric.isActivity {
+                return .activity(sampleActivityRow(for: metric))
+            }
+            return sampleRow(for: metric, showPacing: config.showPacing, settingsStore: settingsStore)
+                .map { .metric($0) }
+        }
+    }
+
+    private static func sampleActivityRow(for metric: MetricID) -> PopoverActivityRow {
+        metric == .fiveHourActivity
+            ? PopoverActivityRow(id: "activity5h", label: metric.label, tokens: 301_000, sessions: 4)
+            : PopoverActivityRow(id: "activity7d", label: metric.label, tokens: 2_450_000, sessions: 38)
     }
 
     private static let sampleValues: [MetricID: (pct: Int, resetText: String)] = [
@@ -248,8 +304,60 @@ extension PopoverView {
 
 // MARK: - Row model
 
+/// One row of the popover's metrics section: a percentage metric with its
+/// gauge bar, or an enterprise history-derived activity count. Not private:
+/// `PopoverSectionView`'s live preview renders the same entries via
+/// `PopoverView.sampleRows(config:settingsStore:isEnterprise:)`.
+enum PopoverRowEntry: Identifiable {
+    case metric(PopoverMetricRow)
+    case activity(PopoverActivityRow)
+
+    var id: String {
+        switch self {
+        case .metric(let row): row.id
+        case .activity(let row): row.id
+        }
+    }
+}
+
+/// History-derived activity row (enterprise): token count + sessions started
+/// in the window. `tokens` is nil until the local JSONL cache has loaded -
+/// the row renders "—" then.
+struct PopoverActivityRow: Identifiable {
+    let id: String
+    let label: String
+    let tokens: Int?
+    let sessions: Int?
+}
+
+struct PopoverActivityRowView: View {
+    let row: PopoverActivityRow
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(row.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let sessions = row.sessions {
+                Text(ActivityWindowCalculator.sessionsLabel(sessions))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text(row.tokens.map(TokenFormatter.compact) ?? "\u{2014}")
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+        }
+    }
+}
+
 /// Not private: `PopoverSectionView`'s live preview reuses this and
-/// `PopoverMetricRowView` directly via `PopoverView.sampleMetricRows(config:settingsStore:)`
+/// `PopoverMetricRowView` directly via `PopoverView.sampleRows(config:settingsStore:isEnterprise:)`
 /// so the preview stays pixel-identical to the real popover rows.
 struct PopoverMetricRow: Identifiable {
     let id: String

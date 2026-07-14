@@ -124,9 +124,19 @@ extension MetricID {
     /// is excluded - it's not an independent pin in the new engine, its old
     /// role is now the `showCountdown` flag on any percentage pin. `opus` and
     /// `cowork` are excluded too - they're popover-only (see `MetricID.opus`),
-    /// `MenuBarRenderer` has no percentage/reset wiring for them.
+    /// `MenuBarRenderer` has no percentage/reset wiring for them. The
+    /// history-derived activity metrics are excluded here and offered only
+    /// through the enterprise-aware overload below.
     static var menuBarPinnable: [MetricID] {
-        allCases.filter { $0 != .sessionReset && $0 != .opus && $0 != .cowork }
+        allCases.filter { $0 != .sessionReset && $0 != .opus && $0 != .cowork && !$0.isActivity }
+    }
+
+    /// Plan-aware pinnable list: enterprise additionally offers the 5h/7d
+    /// activity pins (history-derived token counts) because its API windows
+    /// are untracked. Personal plans never see them - the API percentages
+    /// already cover those windows.
+    static func menuBarPinnable(isEnterprise: Bool) -> [MetricID] {
+        isEnterprise ? menuBarPinnable + [.fiveHourActivity, .sevenDayActivity] : menuBarPinnable
     }
 
     /// SF Symbol shown when a pin's `prefix` is `.symbol`.
@@ -143,6 +153,8 @@ extension MetricID {
         case .sessionReset:  return "clock.arrow.circlepath"
         case .opus:          return "crown.fill"
         case .cowork:        return "person.2.fill"
+        case .fiveHourActivity: return "waveform.path.ecg"
+        case .sevenDayActivity: return "chart.bar.fill"
         }
     }
 }

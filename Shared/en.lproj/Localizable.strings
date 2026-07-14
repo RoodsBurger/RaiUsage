@@ -21,6 +21,15 @@
 "metric.weekly" = "Weekly";
 "metric.sonnet" = "Sonnet";
 
+/* History-derived activity windows (enterprise) */
+"metric.activity5h" = "5h activity";
+"metric.activity7d" = "7d activity";
+"activity.sessions.one" = "1 session";
+"activity.sessions.many" = "%d sessions";
+"activity.tokens.unit" = "tokens";
+"activity.noData" = "No local history";
+"activity.loading" = "Loading…";
+
 /* Settings */
 "settings.refresh.title" = "Refresh";
 "settings.refresh.interval" = "Polling interval";
