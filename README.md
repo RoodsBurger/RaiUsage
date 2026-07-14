@@ -40,7 +40,7 @@ RaiUsage is based on [TokenEater](https://github.com/AThevon/TokenEater) — cle
 
 Grab the latest `RaiUsage-vX.Y.Z.dmg` from [Releases](https://github.com/RoodsBurger/ClaudeUsage/releases/latest), open it, and drag RaiUsage to Applications.
 
-The DMG is ad-hoc signed and **not notarized** (no paid Apple Developer account), so on first launch Gatekeeper blocks it: **right-click the app > Open**, then confirm — or **System Settings > Privacy & Security > Open Anyway**. Once only.
+The DMG is ad-hoc signed and **not notarized** (no paid Apple Developer account), so the first launch shows *"Apple could not verify RaiUsage is free of malware"*. Click **Done** (not "Move to Trash"), then **System Settings > Privacy & Security >** scroll to Security **> Open Anyway**, launch again and confirm. Once per machine. If Open Anyway doesn't appear (managed Macs), run `xattr -cr /Applications/RaiUsage.app` in Terminal instead.
 
 ### Build from source
 

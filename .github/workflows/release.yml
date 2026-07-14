@@ -46,7 +46,7 @@ jobs:
             "RaiUsage-${GITHUB_REF_NAME}.dmg"
 
       # No paid Apple Developer account, so the DMG is ad-hoc signed and NOT
-      # notarized. Users must right-click > Open on first launch.
+      # notarized. First launch needs Privacy & Security > Open Anyway.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,7 +56,8 @@ jobs:
             --title "RaiUsage ${GITHUB_REF_NAME}" \
             --notes "RaiUsage ${GITHUB_REF_NAME}
 
-          This build is ad-hoc signed and **not notarized** (no paid Apple Developer account).
-          On first launch, macOS Gatekeeper will block it: **right-click the app > Open**, then
-          confirm — or go to **System Settings > Privacy & Security > Open Anyway**. You only
-          need to do this once."
+          This build is ad-hoc signed and **not notarized** (no paid Apple Developer account),
+          so the first launch shows *\"Apple could not verify RaiUsage is free of malware\"*.
+          Click **Done** (not Move to Trash), then **System Settings > Privacy & Security >
+          Open Anyway**, launch again and confirm. Once per machine. If Open Anyway doesn't
+          appear (managed Macs), run \`xattr -cr /Applications/RaiUsage.app\` in Terminal."
