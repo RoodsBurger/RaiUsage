@@ -216,19 +216,7 @@ struct SettingsSectionView: View {
                 icon: "chevron.left.forwardslash.chevron.right",
                 title: String(localized: "settings.about.repository"),
                 subtitle: String(localized: "settings.about.repository.hint"),
-                url: URL(string: "https://github.com/AThevon/TokenEater")!
-            )
-            aboutRow(
-                icon: "exclamationmark.bubble.fill",
-                title: String(localized: "settings.about.issues"),
-                subtitle: String(localized: "settings.about.issues.hint"),
-                url: URL(string: "https://github.com/AThevon/TokenEater/issues")!
-            )
-            aboutRow(
-                icon: "tag.fill",
-                title: String(localized: "settings.about.releases"),
-                subtitle: String(localized: "settings.about.releases.hint"),
-                url: URL(string: "https://github.com/AThevon/TokenEater/releases")!
+                url: URL(string: "https://github.com/RoodsBurger/ClaudeUsage")!
             )
         } header: {
             Text(String(localized: "settings.about.title"))
