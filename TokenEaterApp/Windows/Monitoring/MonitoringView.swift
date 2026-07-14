@@ -549,7 +549,7 @@ struct MonitoringView: View {
     // MARK: - Service status
 
     private func outageCard(_ status: VendorStatus) -> some View {
-        let tint = status.health == .down ? DS.Palette.semanticError : DS.Palette.semanticWarning
+        let tint = status.health == .down ? DS.Pastel.coral : DS.Pastel.amber
         let title = status.health == .down
             ? String(localized: "dashboard.status.down")
             : String(localized: "dashboard.status.degraded")

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Compact pacing visualisation for the hero card back. Plots
+/// Compact pacing visualisation in the hero card's expanded section. Plots
 /// - the equilibrium diagonal (linear pacing from 0% to 100% over the
 ///   window, dashed, neutral colour),
 /// - the user's actual trajectory line from origin to the current point
