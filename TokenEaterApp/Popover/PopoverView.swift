@@ -40,14 +40,9 @@ struct PopoverView: View {
                 PopoverSpendSection(extra: extra)
             }
 
-            if popoverConfig.showTimestamp {
-                separator
-                PopoverTimestampRow()
-            }
-
             // Unconditional: the footer always gets a separator above it,
-            // whether or not the timestamp row (or any other optional
-            // section) is showing.
+            // whether or not any optional section is showing. The last-update
+            // timestamp lives inside the footer, next to the refresh button.
             separator
             PopoverFooterToolbar()
         }
@@ -559,28 +554,21 @@ private struct PopoverSpendSection: View {
 
 // MARK: - Timestamp
 
-private struct PopoverTimestampRow: View {
+/// Bare relative timestamp ("22 seconds ago") shown in the footer next to the
+/// refresh button - no "Updated" prefix, no dedicated row.
+private struct PopoverTimestampLabel: View {
     @EnvironmentObject private var usageStore: UsageStore
 
     @State private var lastUpdateText = ""
     private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Text(displayText)
+        Text(lastUpdateText.isEmpty ? String(localized: "menubar.updated.never") : lastUpdateText)
             .font(.caption2)
             .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
             .onAppear { refreshText() }
             .onReceive(timer) { _ in refreshText() }
             .onChange(of: usageStore.lastUpdate) { _, _ in refreshText() }
-    }
-
-    private var displayText: String {
-        let text = lastUpdateText.isEmpty
-            ? String(localized: "menubar.updated.never")
-            : lastUpdateText
-        return String(format: String(localized: "menubar.updated"), text)
     }
 
     private func refreshText() {
@@ -594,11 +582,16 @@ private struct PopoverTimestampRow: View {
 
 private struct PopoverFooterToolbar: View {
     @EnvironmentObject private var usageStore: UsageStore
+    @EnvironmentObject private var settingsStore: SettingsStore
 
     var body: some View {
         HStack {
             toolbarButton(system: "arrow.clockwise", help: "contextmenu.refresh", disabled: usageStore.isLoading) {
                 Task { await usageStore.refresh(force: true) }
+            }
+            if settingsStore.display.popoverConfig.showTimestamp {
+                PopoverTimestampLabel()
+                    .padding(.leading, 2)
             }
             Spacer()
             // RaiDrive-style trailing group: one even rhythm across the icons,
