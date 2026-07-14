@@ -670,6 +670,10 @@ final class StatusBarController: NSObject {
         // stuck behind the titlebar strip.
         window.isMovableByWindowBackground = isOnboarding
         window.delegate = self
+        // Dark-first: the app's fixed-dark DS.Pastel surfaces pair with adaptive
+        // .primary/.secondary text, which would read as black-on-black under a
+        // light system appearance. Pin the window to dark so text stays legible.
+        window.appearance = NSAppearance(named: .darkAqua)
 
         let hostingController = NSHostingController(rootView: appView)
         hostingController.sizingOptions = []
