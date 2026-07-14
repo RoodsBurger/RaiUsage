@@ -15,6 +15,7 @@ struct HistoryView: View {
     @ObservedObject var store: HistoryStore
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var remoteStore: RemoteInstancesStore
     @State private var hoveredBucket: HistoryBucket?
     @State private var chartReveal: Double = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -64,13 +65,24 @@ struct HistoryView: View {
             // and would otherwise keep showing the last load until the user
             // changed the range. Previously loaded buckets stay visible while
             // the reload runs, so there's no flash of empty state.
+            store.setInstances(remoteStore.instances)
             store.reload()
+            // Pull fresh remote logs opportunistically (throttled, key-only);
+            // a completed sync bumps `syncGeneration` and triggers a reload.
+            remoteStore.syncStaleInstances()
         }
         .onChange(of: store.filter) { _, _ in
             triggerChartReveal()
         }
         .onChange(of: store.buckets.count) { _, _ in
             triggerChartReveal()
+        }
+        .onChange(of: remoteStore.instances) { _, newInstances in
+            store.setInstances(newInstances)
+            store.reload()
+        }
+        .onChange(of: remoteStore.syncGeneration) { _, _ in
+            store.reload()
         }
     }
 
@@ -286,6 +298,80 @@ struct HistoryView: View {
             divider
             filterChips
             Spacer()
+            // Only surfaced once at least one remote instance is configured -
+            // single-machine setups stay uncluttered.
+            if !remoteStore.instances.isEmpty {
+                sourcePicker
+            }
+        }
+    }
+
+    /// "All sources" / "This Mac" / one row per configured instance. Rescopes
+    /// the whole view (chart, breakdown, footer chips, sessions, and - for
+    /// enterprise viewers - the cost estimate) to the selected source.
+    private var sourcePicker: some View {
+        Menu {
+            Button { store.setSourceFilter(nil) } label: {
+                sourceMenuRow(String(localized: "history.source.all"), selected: store.sourceFilter == nil)
+            }
+            Button { store.setSourceFilter(.local) } label: {
+                sourceMenuRow(String(localized: "history.source.thisMac"), selected: store.sourceFilter == .local)
+            }
+            Divider()
+            ForEach(remoteStore.instances) { instance in
+                let source = LogSource.instance(id: instance.id, label: instance.displayLabel)
+                Button { store.setSourceFilter(source) } label: {
+                    sourceMenuRow(instance.displayLabel, selected: store.sourceFilter == source)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 10, weight: .medium))
+                Text(currentSourceLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(DS.Pastel.card)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(DS.Pastel.border, lineWidth: 1)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func sourceMenuRow(_ title: String, selected: Bool) -> some View {
+        if selected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+
+    /// Display name of the active source for the picker's pill.
+    private var currentSourceLabel: String {
+        switch store.sourceFilter {
+        case .none:
+            return String(localized: "history.source.all")
+        case .local:
+            return String(localized: "history.source.thisMac")
+        case .instance(let id, _):
+            return remoteStore.instances.first { $0.id == id }?.displayLabel
+                ?? String(localized: "history.source.all")
         }
     }
 

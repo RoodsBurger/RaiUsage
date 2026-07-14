@@ -13,6 +13,7 @@ struct PopoverView: View {
     @EnvironmentObject private var vendorStatusStore: VendorStatusStore
     @EnvironmentObject private var activityStore: ActivityStore
     @EnvironmentObject private var updateStore: UpdateStore
+    @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,6 +70,13 @@ struct PopoverView: View {
 
     private var metricsSection: some View {
         VStack(spacing: 10) {
+            // Compact source selector above the activity tiles. Shown only when
+            // an instance is configured AND activity rows are actually present
+            // (nothing to rescope otherwise), so single-machine popovers are
+            // unchanged.
+            if showActivitySourceSelector {
+                PopoverActivitySourceSelector()
+            }
             ForEach(metricRows) { entry in
                 switch entry {
                 case .metric(let row):
@@ -80,6 +88,12 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    /// The popover carries activity tiles to rescope, and ≥1 instance exists.
+    private var showActivitySourceSelector: Bool {
+        guard !remoteInstancesStore.instances.isEmpty else { return false }
+        return metricRows.contains { if case .activity = $0 { true } else { false } }
     }
 
     /// Worst (highest-severity) `RiskZone` across every rendered metric row,
@@ -355,6 +369,73 @@ struct PopoverActivityRowView: View {
                 .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(.primary)
+        }
+    }
+}
+
+/// Compact three-tier source selector in the popover's activity area header,
+/// rescoping the 5h / 7d activity tiles via `ActivityStore.sourceFilter`. Same
+/// selection model as the History dropdown, but its own independent state.
+private struct PopoverActivitySourceSelector: View {
+    @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(String(localized: "history.source.label"))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+            Spacer(minLength: 6)
+            Menu {
+                Button { activityStore.sourceFilter = nil } label: {
+                    menuRow(String(localized: "history.source.all"), selected: activityStore.sourceFilter == nil)
+                }
+                Button { activityStore.sourceFilter = .local } label: {
+                    menuRow(String(localized: "history.source.thisMac"), selected: activityStore.sourceFilter == .local)
+                }
+                Divider()
+                ForEach(remoteInstancesStore.instances) { instance in
+                    let source = LogSource.instance(id: instance.id, label: instance.displayLabel)
+                    Button { activityStore.sourceFilter = source } label: {
+                        menuRow(instance.displayLabel, selected: activityStore.sourceFilter == source)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(currentLabel)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private func menuRow(_ title: String, selected: Bool) -> some View {
+        if selected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+
+    private var currentLabel: String {
+        switch activityStore.sourceFilter {
+        case .none:
+            return String(localized: "history.source.all")
+        case .local:
+            return String(localized: "history.source.thisMac")
+        case .instance(let id, _):
+            return remoteInstancesStore.instances.first { $0.id == id }?.displayLabel
+                ?? String(localized: "history.source.all")
         }
     }
 }

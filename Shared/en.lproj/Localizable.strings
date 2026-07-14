@@ -421,6 +421,37 @@
 /* Estimated cost (enterprise, opt-in) */
 "history.cost.est" = "est.";
 "history.cost.tooltip" = "Estimated from published list prices. Your actual enterprise bill may differ.";
+
+/* History / popover source dropdown (remote instances) */
+"history.source.label" = "Source";
+"history.source.all" = "All sources";
+"history.source.thisMac" = "This Mac";
+
+/* Remote sessions (SSH) settings */
+"settings.remote.title" = "Remote sessions (SSH)";
+"settings.remote.footer" = "RaiUsage connects over SSH with your existing key — the same as ssh ubuntu@10.63.7.150. Add the instances you run Claude Code on and it pulls their session logs (from ~/.claude) so History, activity, and cost include them. Key-based auth only — no passwords are stored or sent. The instance needs rsync (default on Ubuntu). A new host is trusted on first connect.";
+"settings.remote.hint" = "Host or IP and SSH user, e.g. 10.63.7.150 and ubuntu. A nickname is optional.";
+"settings.remote.nickname.placeholder" = "Nickname (optional)";
+"settings.remote.host.placeholder" = "Host or IP";
+"settings.remote.user.placeholder" = "SSH user";
+"settings.remote.add" = "Add";
+"settings.remote.invalid" = "Enter a valid host and user (letters, digits, dot, hyphen, colon; no spaces).";
+"settings.remote.syncNow" = "Sync now";
+"settings.remote.syncAll" = "Sync all";
+"settings.remote.remove" = "Remove";
+"settings.remote.status.syncing" = "Syncing…";
+"settings.remote.status.synced" = "Synced %1$d logs · %2$@";
+
+/* Remote sync errors */
+"remote.error.invalid" = "Invalid host or user";
+"remote.error.cache" = "Couldn't create the local cache folder";
+"remote.error.timeout" = "Connection timed out";
+"remote.error.permission" = "Permission denied (check your SSH key)";
+"remote.error.norsync" = "rsync not found on the instance";
+"remote.error.hostkey" = "Host key changed";
+"remote.error.unreachable" = "Couldn't reach the host";
+"remote.error.generic" = "Sync failed (rsync exit %d)";
+
 "sidebar.display" = "Menu bar";
 "sidebar.popover" = "Popover";
 "sidebar.pacing" = "Pacing";

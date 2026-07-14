@@ -4,10 +4,17 @@ struct SettingsSectionView: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var updateStore: UpdateStore
+    @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
 
     @State private var isImporting = false
     @State private var importMessage: String?
     @State private var importSuccess = false
+
+    // Add-instance form fields for the Remote sessions section.
+    @State private var newRemoteNickname = ""
+    @State private var newRemoteHost = ""
+    @State private var newRemoteUser = ""
+    @State private var remoteAddError: String?
     /// Owns the "Sign in with Claude" own-OAuth-login flow for this card.
     /// A child view's `@StateObject` (not the App struct), so it is allowed
     /// to persist across this view's re-renders per the SwiftUI rules.
@@ -23,6 +30,7 @@ struct SettingsSectionView: View {
             Form {
                 connectionSection
                 generalSection
+                remoteSessionsSection
                 proxySection
                 refreshSection
                 serviceStatusSection
@@ -139,6 +147,91 @@ struct SettingsSectionView: View {
             .padding(.vertical, 2)
         } header: {
             Text(String(localized: "settings.general.title"))
+        }
+    }
+
+    // MARK: - Remote sessions (SSH)
+
+    /// Manage the remote instances whose Claude Code session logs are pulled
+    /// over SSH so History / activity / cost include them. Available on all
+    /// plans. Keys only, no passwords - see `RemoteLogSyncService`.
+    private var remoteSessionsSection: some View {
+        Section {
+            ForEach(remoteInstancesStore.instances) { instance in
+                RemoteInstanceRow(
+                    instance: instance,
+                    status: remoteInstancesStore.status[instance.id],
+                    onToggle: { remoteInstancesStore.setEnabled(instance.id, $0) },
+                    onSync: { remoteInstancesStore.syncNow(instance.id) },
+                    onRemove: { remoteInstancesStore.removeInstance(instance.id) }
+                )
+            }
+
+            addRemoteInstanceRow
+
+            if !remoteInstancesStore.instances.isEmpty {
+                Button {
+                    remoteInstancesStore.syncAll()
+                } label: {
+                    Label(String(localized: "settings.remote.syncAll"), systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 2)
+            }
+        } header: {
+            Text(String(localized: "settings.remote.title"))
+        } footer: {
+            Text(String(localized: "settings.remote.footer"))
+        }
+    }
+
+    private var addRemoteInstanceRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(String(localized: "settings.remote.nickname.placeholder"), text: $newRemoteNickname)
+                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                TextField(String(localized: "settings.remote.host.placeholder"), text: $newRemoteHost)
+                    .textFieldStyle(.roundedBorder)
+                TextField(String(localized: "settings.remote.user.placeholder"), text: $newRemoteUser)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+                Button(String(localized: "settings.remote.add")) {
+                    addRemoteInstance()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(DS.Pastel.green)
+                .controlSize(.small)
+                .disabled(newRemoteHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || newRemoteUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let remoteAddError {
+                Text(remoteAddError)
+                    .font(.caption)
+                    .foregroundStyle(DS.Pastel.coral)
+            }
+            Text(String(localized: "settings.remote.hint"))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func addRemoteInstance() {
+        let nickname = newRemoteNickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok = remoteInstancesStore.addInstance(
+            host: newRemoteHost,
+            user: newRemoteUser,
+            nickname: nickname.isEmpty ? nil : nickname
+        )
+        if ok {
+            newRemoteNickname = ""
+            newRemoteHost = ""
+            newRemoteUser = ""
+            remoteAddError = nil
+        } else {
+            remoteAddError = String(localized: "settings.remote.invalid")
         }
     }
 
@@ -541,6 +634,122 @@ struct SettingsSectionView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Remote instance row
+
+/// One configured remote instance: enable toggle + nickname/target, a "Sync
+/// now" action, remove, and the last-status line. The enable toggle mirrors
+/// the model into local `@State` and syncs back via `.onChange` - the SwiftUI
+/// rules forbid `Binding(get:set:)` / bindings to store-derived values.
+private struct RemoteInstanceRow: View {
+    let instance: RemoteInstance
+    let status: RemoteSyncStatus?
+    let onToggle: (Bool) -> Void
+    let onSync: () -> Void
+    let onRemove: () -> Void
+
+    @State private var enabled: Bool
+
+    init(
+        instance: RemoteInstance,
+        status: RemoteSyncStatus?,
+        onToggle: @escaping (Bool) -> Void,
+        onSync: @escaping () -> Void,
+        onRemove: @escaping () -> Void
+    ) {
+        self.instance = instance
+        self.status = status
+        self.onToggle = onToggle
+        self.onSync = onSync
+        self.onRemove = onRemove
+        _enabled = State(initialValue: instance.enabled)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Toggle("", isOn: $enabled)
+                    .labelsHidden()
+                    .tint(DS.Pastel.green)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(instance.displayLabel)
+                        .font(.callout)
+                    // Show the SSH target as a subline whenever a nickname is
+                    // the primary label, so the host stays visible.
+                    if instance.nickname?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        Text(instance.sshTarget)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    onSync()
+                } label: {
+                    Label(String(localized: "settings.remote.syncNow"), systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .disabled(isSyncing || !enabled)
+
+                Button(role: .destructive) {
+                    onRemove()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help(String(localized: "settings.remote.remove"))
+            }
+
+            statusLine
+        }
+        .padding(.vertical, 2)
+        .onChange(of: enabled) { _, newValue in
+            if newValue != instance.enabled { onToggle(newValue) }
+        }
+        .onChange(of: instance.enabled) { _, newValue in
+            if newValue != enabled { enabled = newValue }
+        }
+    }
+
+    private var isSyncing: Bool {
+        if case .syncing = status?.state { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        switch status?.state {
+        case .syncing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(String(localized: "settings.remote.status.syncing"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        case .synced(let count, let at):
+            Text(String(format: String(localized: "settings.remote.status.synced"),
+                        count, at.formatted(.relative(presentation: .named))))
+                .font(.caption2)
+                .foregroundStyle(DS.Pastel.green)
+        case .failed(let message):
+            Label {
+                Text(message)
+                    .font(.caption2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .foregroundStyle(DS.Pastel.coral)
+        case .idle, .none:
+            EmptyView()
         }
     }
 }

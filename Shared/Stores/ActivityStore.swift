@@ -16,10 +16,17 @@ import SwiftUI
 final class ActivityStore: ObservableObject {
 
     /// nil until the first successful load, and stays nil when there is no
-    /// local JSONL history at all - consumers render "—" for nil.
+    /// JSONL history at all for the active source - consumers render "—".
     @Published private(set) var fiveHour: ActivityWindowSummary?
     @Published private(set) var sevenDay: ActivityWindowSummary?
     @Published private(set) var hasLoaded = false
+
+    /// Active source selection for the popover activity tiles (nil = "All
+    /// sources"). Independent of `HistoryStore.sourceFilter`. Changing it
+    /// recomputes from already-loaded per-source buckets (no re-scan).
+    @Published var sourceFilter: LogSource? {
+        didSet { if oldValue != sourceFilter { recompute() } }
+    }
 
     private let service: SessionHistoryServiceProtocol
     private var loadTask: Task<Void, Never>?
@@ -27,8 +34,33 @@ final class ActivityStore: ObservableObject {
     private var lastLoaded: Date?
     private static let staleAfter: TimeInterval = 60
 
+    /// Per-source hourly (24h) and daily (7d) buckets from the last scan.
+    private var hourlyBySource: [LogSource: [HistoryBucket]] = [:]
+    private var dailyBySource: [LogSource: [HistoryBucket]] = [:]
+    /// Enabled + disabled instances defining the remote scan roots.
+    private var currentInstances: [RemoteInstance] = []
+
     init(service: SessionHistoryServiceProtocol = SessionHistoryService()) {
         self.service = service
+    }
+
+    /// Updates the remote instances feeding the scan roots. A real change
+    /// invalidates the cache so the next `warmIfStale` re-scans with the new
+    /// roots, and drops a stale `sourceFilter` for a removed/disabled instance.
+    func setInstances(_ instances: [RemoteInstance]) {
+        guard instances != currentInstances else { return }
+        currentInstances = instances
+        lastLoaded = nil
+        if case .instance(let id, _)? = sourceFilter,
+           !instances.contains(where: { $0.enabled && $0.id == id }) {
+            sourceFilter = nil
+        }
+    }
+
+    /// Forces the next `warmIfStale` to re-scan (e.g. after a remote sync
+    /// refreshed a cache dir).
+    func invalidate() {
+        lastLoaded = nil
     }
 
     /// Kicks a background load unless one is in flight or the cached data is
@@ -41,15 +73,17 @@ final class ActivityStore: ObservableObject {
         }
         inFlight = true
         let service = self.service
+        let roots = LogSourceAggregator.buildRoots(instances: currentInstances)
         loadTask = Task { [weak self] in
             do {
                 // 24h range -> hourly buckets (5h window needs hour-level
-                // resolution); 7d range -> daily buckets.
+                // resolution); 7d range -> daily buckets. Both scan every
+                // source root so the tiles can be scoped to one instance.
                 async let hourlyTask = Task.detached(priority: .utility) {
-                    try await service.loadHistory(range: .twentyFourHours)
+                    try await service.loadHistoryBySource(range: .twentyFourHours, roots: roots)
                 }.value
                 async let dailyTask = Task.detached(priority: .utility) {
-                    try await service.loadHistory(range: .sevenDays)
+                    try await service.loadHistoryBySource(range: .sevenDays, roots: roots)
                 }.value
 
                 let hourly = try await hourlyTask
@@ -60,27 +94,37 @@ final class ActivityStore: ObservableObject {
                     return
                 }
 
-                let now = Date()
-                if hourly.isEmpty && daily.isEmpty {
-                    // No local history at all -> keep nil so surfaces show "—"
-                    // instead of a misleading hard zero.
-                    self.fiveHour = nil
-                    self.sevenDay = nil
-                } else {
-                    self.fiveHour = ActivityWindowCalculator.summary(
-                        buckets: hourly, window: 5 * 3600, bucketSpan: 3600, now: now
-                    )
-                    self.sevenDay = ActivityWindowCalculator.summary(
-                        buckets: daily, window: 7 * 86_400, bucketSpan: 86_400, now: now
-                    )
-                }
+                self.hourlyBySource = hourly
+                self.dailyBySource = daily
                 self.hasLoaded = true
-                self.lastLoaded = now
+                self.lastLoaded = Date()
                 self.inFlight = false
+                self.recompute()
             } catch {
                 // Silent fail - keep the previous (possibly stale) summaries.
                 self?.inFlight = false
             }
+        }
+    }
+
+    /// Re-derives the 5h / 7d tiles for the current source selection from the
+    /// stored per-source buckets. No I/O.
+    private func recompute() {
+        let now = Date()
+        let hourly = LogSourceAggregator.activeBuckets(bySource: hourlyBySource, sourceFilter: sourceFilter)
+        let daily = LogSourceAggregator.activeBuckets(bySource: dailyBySource, sourceFilter: sourceFilter)
+        if hourly.isEmpty && daily.isEmpty {
+            // No history at all for this source -> keep nil so surfaces show
+            // "—" instead of a misleading hard zero.
+            fiveHour = nil
+            sevenDay = nil
+        } else {
+            fiveHour = ActivityWindowCalculator.summary(
+                buckets: hourly, window: 5 * 3600, bucketSpan: 3600, now: now
+            )
+            sevenDay = ActivityWindowCalculator.summary(
+                buckets: daily, window: 7 * 86_400, bucketSpan: 86_400, now: now
+            )
         }
     }
 }

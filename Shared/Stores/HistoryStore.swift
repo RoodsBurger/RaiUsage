@@ -15,9 +15,20 @@ final class HistoryStore: ObservableObject {
 
     @Published var filter: HistoryFilter = .all
 
-    /// All buckets within the active range. Kept un-filtered so swapping the
-    /// model filter is instant (no re-parse).
+    /// Active source selection (nil = "All sources"). Applied on top of the
+    /// range + model filters. Changing it recomputes from already-loaded
+    /// per-source buckets, so switching sources is instant (no re-scan).
+    @Published var sourceFilter: LogSource? {
+        didSet { if oldValue != sourceFilter { recomputeForSource() } }
+    }
+
+    /// Buckets for the CURRENT source selection within the active range. Kept
+    /// un-filtered by model so swapping the model filter is instant.
     @Published private(set) var buckets: [HistoryBucket] = []
+
+    /// Raw per-source buckets from the last load, keyed by `LogSource`. The
+    /// source picker narrows `buckets` from this without re-parsing.
+    @Published private(set) var bucketsBySource: [LogSource: [HistoryBucket]] = [:]
 
     /// Summary computed from `buckets` after applying `filter`.
     @Published private(set) var summary: HistorySummary = .empty
@@ -41,6 +52,10 @@ final class HistoryStore: ObservableObject {
     private let pricing: PricingServiceProtocol
     private var loadTask: Task<Void, Never>?
 
+    /// Enabled + disabled instances that define the remote scan roots. Fed by
+    /// the view from `RemoteInstancesStore`; a change re-scans on next reload.
+    private var currentInstances: [RemoteInstance] = []
+
     init(
         service: SessionHistoryServiceProtocol = SessionHistoryService(),
         pricing: PricingServiceProtocol = PricingService()
@@ -51,10 +66,27 @@ final class HistoryStore: ObservableObject {
 
     // MARK: - Public
 
+    /// Updates the remote instances feeding the scan roots. Drops a stale
+    /// `sourceFilter` that points at a removed/disabled instance. Does not
+    /// reload on its own; the caller pairs it with `reload()`.
+    func setInstances(_ instances: [RemoteInstance]) {
+        currentInstances = instances
+        if case .instance(let id, _)? = sourceFilter,
+           !instances.contains(where: { $0.enabled && $0.id == id }) {
+            sourceFilter = nil
+        }
+    }
+
+    func setSourceFilter(_ newSource: LogSource?) {
+        guard sourceFilter != newSource else { return }
+        sourceFilter = newSource
+    }
+
     func reload() {
         loadTask?.cancel()
         let range = self.range
         let service = self.service
+        let roots = LogSourceAggregator.buildRoots(instances: currentInstances)
         // Refresh the maintained price table in the background (throttled to
         // 24h internally). Fire-and-forget: the cost UI reads the cached table
         // synchronously and never waits on this.
@@ -65,23 +97,24 @@ final class HistoryStore: ObservableObject {
             guard let self else { return }
             do {
                 async let bucketsTask = Task.detached(priority: .utility) {
-                    try await service.loadHistory(range: range)
+                    try await service.loadHistoryBySource(range: range, roots: roots)
                 }.value
                 async let previousTask = Task.detached(priority: .utility) {
-                    try await service.loadPreviousPeriodActiveTokens(range: range)
+                    try await service.loadPreviousPeriodActiveTokensBySource(range: range, roots: roots)
                 }.value
 
-                let buckets = try await bucketsTask
-                let previousActive = (try? await previousTask) ?? 0
+                let bySource = try await bucketsTask
+                let previousBySource = (try? await previousTask) ?? [:]
 
                 if Task.isCancelled { return }
                 await MainActor.run {
-                    self.applyResult(buckets: buckets, previousActive: previousActive)
+                    self.applyResult(bySource: bySource, previousBySource: previousBySource)
                 }
             } catch is CancellationError {
                 return
             } catch {
                 await MainActor.run {
+                    self.bucketsBySource = [:]
                     self.buckets = []
                     self.summary = .empty
                     self.isLoading = false
@@ -99,18 +132,33 @@ final class HistoryStore: ObservableObject {
 
     // MARK: - Private
 
-    private func applyResult(buckets: [HistoryBucket], previousActive: Int) {
-        self.buckets = buckets
-        self.previousPeriodActive = previousActive
-        self.activeFamilies = Self.activeFamilies(in: buckets)
-        self.familyTotals = Self.familyTotals(in: buckets)
+    private func applyResult(bySource: [LogSource: [HistoryBucket]], previousBySource: [LogSource: Int]) {
+        self.bucketsBySource = bySource
+        self.previousActiveBySource = previousBySource
         self.isLoading = false
         self.hasLoadedOnce = true
+        recomputeForSource()
+    }
+
+    /// Re-derives `buckets` + family stats + previous-period for the current
+    /// source selection, then the summary. Called after a load and whenever
+    /// the source picker changes (no re-scan).
+    private func recomputeForSource() {
+        let active = LogSourceAggregator.activeBuckets(bySource: bucketsBySource, sourceFilter: sourceFilter)
+        self.buckets = active
+        self.activeFamilies = Self.activeFamilies(in: active)
+        self.familyTotals = Self.familyTotals(in: active)
+        self.previousPeriodActive = LogSourceAggregator.previousActive(
+            previousBySource: previousActiveBySource, sourceFilter: sourceFilter
+        )
         recomputeSummary()
     }
 
-    /// Cached during `applyResult` so `recomputeSummary` (called whenever the
-    /// filter flips) doesn't have to re-issue a load.
+    /// Previous-period active tokens per source from the last load.
+    private var previousActiveBySource: [LogSource: Int] = [:]
+
+    /// Previous-period active tokens for the active source, cached so
+    /// `recomputeSummary` (called on every filter flip) needn't re-load.
     private var previousPeriodActive: Int = 0
 
     private func recomputeSummary() {

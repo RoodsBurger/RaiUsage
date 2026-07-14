@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var vendorStatusStore: VendorStatusStore!
     var activityStore: ActivityStore!
     var updateStore: UpdateStore!
+    var remoteInstancesStore: RemoteInstancesStore!
 
     private var statusBarController: StatusBarController?
 
@@ -30,7 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsStore: settingsStore,
             vendorStatusStore: vendorStatusStore,
             activityStore: activityStore,
-            updateStore: updateStore
+            updateStore: updateStore,
+            remoteInstancesStore: remoteInstancesStore
         )
         updateStore.startAutoCheck()
     }
@@ -45,6 +47,7 @@ struct RaiUsageApp: App {
     private let vendorStatusStore: VendorStatusStore
     private let activityStore: ActivityStore
     private let updateStore: UpdateStore
+    private let remoteInstancesStore: RemoteInstancesStore
 
     init() {
         let tokenProvider = TokenProvider(
@@ -56,6 +59,7 @@ struct RaiUsageApp: App {
         self.vendorStatusStore = VendorStatusStore()
         self.activityStore = ActivityStore()
         self.updateStore = UpdateStore()
+        self.remoteInstancesStore = RemoteInstancesStore()
 
         NotificationService().setupDelegate()
         appDelegate.usageStore = usageStore
@@ -63,6 +67,7 @@ struct RaiUsageApp: App {
         appDelegate.vendorStatusStore = vendorStatusStore
         appDelegate.activityStore = activityStore
         appDelegate.updateStore = updateStore
+        appDelegate.remoteInstancesStore = remoteInstancesStore
     }
 
     var body: some Scene {

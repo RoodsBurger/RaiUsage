@@ -42,6 +42,7 @@ final class StatusBarController: NSObject {
     private let vendorStatusStore: VendorStatusStore
     private let activityStore: ActivityStore
     private let updateStore: UpdateStore
+    private let remoteInstancesStore: RemoteInstancesStore
     private let tokenFileMonitor: TokenFileMonitorProtocol
 
     init(
@@ -50,6 +51,7 @@ final class StatusBarController: NSObject {
         vendorStatusStore: VendorStatusStore,
         activityStore: ActivityStore,
         updateStore: UpdateStore,
+        remoteInstancesStore: RemoteInstancesStore,
         tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
     ) {
         self.usageStore = usageStore
@@ -57,6 +59,7 @@ final class StatusBarController: NSObject {
         self.vendorStatusStore = vendorStatusStore
         self.activityStore = activityStore
         self.updateStore = updateStore
+        self.remoteInstancesStore = remoteInstancesStore
         self.tokenFileMonitor = tokenFileMonitor
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.statusItem.isVisible = settingsStore.showMenuBar
@@ -175,6 +178,7 @@ final class StatusBarController: NSObject {
             .environmentObject(vendorStatusStore)
             .environmentObject(activityStore)
             .environmentObject(updateStore)
+            .environmentObject(remoteInstancesStore)
             // Tint the vibrancy material toward the app's elevated-card color
             // so the popover matches the dashboard surfaces instead of the
             // material's neutral gray; sub-1.0 alpha keeps a hint of the
@@ -311,6 +315,29 @@ final class StatusBarController: NSObject {
                 self?.settingsStore.display.applyEnterpriseDefaultsIfFirstRun(planType: plan)
             }
             .store(in: &cancellables)
+
+        // A remote-instance edit re-scopes the activity scan roots; a completed
+        // sync refreshed a cache dir. Either invalidates the activity cache so
+        // the popover tiles re-scan on the next warm (gated + throttled inside).
+        remoteInstancesStore.$instances
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] instances in
+                guard let self else { return }
+                self.activityStore.setInstances(instances)
+                self.warmActivityIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        remoteInstancesStore.$syncGeneration
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.activityStore.invalidate()
+                self.warmActivityIfNeeded()
+            }
+            .store(in: &cancellables)
     }
 
     private func bootstrapRefresh() {
@@ -428,6 +455,9 @@ final class StatusBarController: NSObject {
         let popoverWants = popoverConfig.metricOrder.contains { $0.isActivity && !popoverConfig.hiddenMetrics.contains($0) }
         let dashboardWants = dashboardWindow != nil
         guard menuBarWants || popoverWants || dashboardWants else { return }
+        // Keep the activity scan roots in sync with the configured instances so
+        // the popover source selector can scope the tiles to one machine.
+        activityStore.setInstances(remoteInstancesStore.instances)
         activityStore.warmIfStale()
     }
 
@@ -708,6 +738,7 @@ final class StatusBarController: NSObject {
             .environmentObject(vendorStatusStore)
             .environmentObject(activityStore)
             .environmentObject(updateStore)
+            .environmentObject(remoteInstancesStore)
 
         let isOnboarding = !settingsStore.hasCompletedOnboarding
         let onboardingSize = NSSize(

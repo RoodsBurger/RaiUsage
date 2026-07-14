@@ -28,9 +28,9 @@ final class SessionHistoryService: SessionHistoryServiceProtocol {
             .appendingPathComponent("history-cache.json")
     }
 
-    /// Root scan dir. Real home, not the sandbox container -> we resolve via
-    /// `getpwuid` (same trick used in `SharedFileService` for the widget).
-    private static var projectsURL: URL {
+    /// Local root scan dir. Real home, not the sandbox container -> we resolve
+    /// via `getpwuid` (same trick used in `SharedFileService` for the widget).
+    static var localProjectsURL: URL {
         let pw = getpwuid(getuid())
         let home: URL
         if let home_str = pw?.pointee.pw_dir.flatMap({ String(cString: $0) }), !home_str.isEmpty {
@@ -45,87 +45,112 @@ final class SessionHistoryService: SessionHistoryServiceProtocol {
     /// queue or starving the rest of the app of cores.
     private static let concurrencyCap = 4
 
-    // MARK: - Public
+    // MARK: - Public (local-only, back-compat)
 
     func loadHistory(range: HistoryRange) async throws -> [HistoryBucket] {
-        try await loadAggregates(rangeStart: rangeStart(for: range), bucketing: range)
+        let bySource = try await loadHistoryBySource(
+            range: range,
+            roots: [ScanRoot(source: .local, url: Self.localProjectsURL)]
+        )
+        return bySource[.local] ?? []
     }
 
     func loadPreviousPeriodActiveTokens(range: HistoryRange) async throws -> Int {
+        let bySource = try await loadPreviousPeriodActiveTokensBySource(
+            range: range,
+            roots: [ScanRoot(source: .local, url: Self.localProjectsURL)]
+        )
+        return bySource[.local] ?? 0
+    }
+
+    // MARK: - Public (source-tagged, multi-root)
+
+    func loadHistoryBySource(range: HistoryRange, roots: [ScanRoot]) async throws -> [LogSource: [HistoryBucket]] {
+        let rangeStart = rangeStart(for: range)
+        let rangeEnd = Date()
+
+        var cache = Self.loadCache()
+        var allEntries: [String: HistoryFileCacheEntry] = [:]
+        var result: [LogSource: [HistoryBucket]] = [:]
+
+        for root in roots {
+            try Task.checkCancellation()
+            let files = try Self.candidateFiles(root: root.url, rangeStart: rangeStart)
+            let entries = try await Self.parseFiles(files, cache: cache)
+            for entry in entries { allEntries[entry.path] = entry }
+            result[root.source] = Self.aggregate(
+                entries: entries, rangeStart: rangeStart, rangeEnd: rangeEnd, bucketing: range
+            )
+        }
+
+        // Persist every scanned root's entries in one write (remote cache files
+        // have distinct absolute paths, so they coexist with local entries).
+        cache.entries = allEntries
+        Self.saveCache(cache)
+        return result
+    }
+
+    func loadPreviousPeriodActiveTokensBySource(range: HistoryRange, roots: [ScanRoot]) async throws -> [LogSource: Int] {
         let now = Date()
         let currentStart = now.addingTimeInterval(-range.seconds)
         let previousStart = currentStart.addingTimeInterval(-range.seconds)
-        let buckets = try await loadAggregates(
-            rangeStart: previousStart,
-            rangeEnd: currentStart,
-            bucketing: range
-        )
-        return buckets.reduce(0) { $0 + $1.totalActive }
+
+        // Read-only over an older window: reuse the cache but don't write it
+        // back here (the concurrent `loadHistoryBySource` owns the write, and
+        // the per-file entries it stores are window-independent).
+        let cache = Self.loadCache()
+        var result: [LogSource: Int] = [:]
+
+        for root in roots {
+            try Task.checkCancellation()
+            let files = try Self.candidateFiles(root: root.url, rangeStart: previousStart)
+            let entries = try await Self.parseFiles(files, cache: cache)
+            let buckets = Self.aggregate(
+                entries: entries, rangeStart: previousStart, rangeEnd: currentStart, bucketing: range
+            )
+            result[root.source] = buckets.reduce(0) { $0 + $1.totalActive }
+        }
+        return result
     }
 
     // MARK: - Aggregation pipeline
 
-    private func loadAggregates(
-        rangeStart: Date,
-        rangeEnd: Date = Date(),
-        bucketing: HistoryRange
-    ) async throws -> [HistoryBucket] {
-        // 1. List candidate files via FileManager + mtime filter.
-        let files = try Self.candidateFiles(rangeStart: rangeStart)
-        try Task.checkCancellation()
-
-        // 2. Load existing cache off the main queue (small JSON, cheap).
-        var cache = Self.loadCache()
-        var caughtError: Error?
-
-        // 3. Parse each candidate file in a TaskGroup, hitting the cache when
-        //    mtime matches. We collect cache entries so we can persist them
-        //    back at the end of the run.
-        var newEntries: [String: HistoryFileCacheEntry] = [:]
+    /// Parses every candidate file in a TaskGroup, reusing the cache when the
+    /// mtime matches. Returns the per-file cache entries (fresh or reused).
+    private static func parseFiles(
+        _ files: [URL],
+        cache: HistoryCache
+    ) async throws -> [HistoryFileCacheEntry] {
+        var entries: [HistoryFileCacheEntry] = []
         try await withThrowingTaskGroup(of: HistoryFileCacheEntry?.self) { group in
             var inFlight = 0
             var iterator = files.makeIterator()
 
             // Prime the pump up to the concurrency cap.
-            while inFlight < Self.concurrencyCap, let url = iterator.next() {
-                group.addTask { try await Self.parseOrReuse(url: url, cache: cache) }
+            while inFlight < concurrencyCap, let url = iterator.next() {
+                group.addTask { try await parseOrReuse(url: url, cache: cache) }
                 inFlight += 1
             }
 
             while let result = try await group.next() {
                 inFlight -= 1
                 if let entry = result {
-                    newEntries[entry.path] = entry
+                    entries.append(entry)
                 }
                 if let url = iterator.next() {
-                    group.addTask { try await Self.parseOrReuse(url: url, cache: cache) }
+                    group.addTask { try await parseOrReuse(url: url, cache: cache) }
                     inFlight += 1
                 }
                 try Task.checkCancellation()
             }
-
-            _ = caughtError
         }
-
-        // 4. Merge new entries back into the cache and persist if anything
-        //    changed.
-        cache.entries = newEntries
-        Self.saveCache(cache)
-
-        // 5. Aggregate across files into the requested bucketing.
-        return Self.aggregate(
-            entries: Array(newEntries.values),
-            rangeStart: rangeStart,
-            rangeEnd: rangeEnd,
-            bucketing: bucketing
-        )
+        return entries
     }
 
     // MARK: - File discovery
 
-    private static func candidateFiles(rangeStart: Date) throws -> [URL] {
+    private static func candidateFiles(root: URL, rangeStart: Date) throws -> [URL] {
         let fm = FileManager.default
-        let root = projectsURL
         var results: [URL] = []
 
         guard let enumerator = fm.enumerator(
