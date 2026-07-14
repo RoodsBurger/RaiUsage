@@ -7,14 +7,13 @@
 <p align="center">
   <strong>Monitor your Claude AI usage limits directly from your macOS desktop.</strong>
   <br>
-  <a href="#install">Install</a> · Fork of <a href="https://github.com/AThevon/TokenEater">AThevon/TokenEater</a>
+  <a href="#install">Install</a> · A fork of <a href="https://github.com/AThevon/TokenEater">TokenEater</a> — cleaned up, simplified, unified UI
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white" alt="Swift 5.9">
   <img src="https://img.shields.io/badge/Claude-Pro%20%2F%20Max%20%2F%20Team-D97706" alt="Claude Pro / Max / Team">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 </p>
 
 ---
@@ -24,6 +23,8 @@
 ## What is RaiUsage?
 
 A native macOS menu bar app with a dashboard window and a quick-glance popover that tracks your Claude AI usage in real-time. Pastel, minimal, native.
+
+RaiUsage is based on [TokenEater](https://github.com/AThevon/TokenEater) — cleaned up (widgets, overlay, updater, and theme engine removed), simplified to a focused menu-bar app, and given one unified pastel UI across every surface. See [Origin](#origin).
 
 - **Menu bar** — Live percentages with color-coded thresholds. A fully configurable status item: pin any metrics, choose prefix/value/countdown per pin, pick all-pins / highest-risk / rotate display, and monochrome or risk colors.
 - **Popover** — A single quick-glance popover with the metrics, pacing chips, and extra-credits spend you choose to show; reorderable.
@@ -164,11 +165,7 @@ After this, reinstall with `./build.sh` (see [Install](#install)).
 
 Contributions are welcome! Bug reports, feature ideas and code PRs all help. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide - it covers the workflow, commit conventions, testing, and a few SwiftUI rules worth knowing before touching the code.
 
-## Support
+## Origin
 
-If RaiUsage saves you from hitting your limits blindly, consider [buying me a coffee](https://buymeacoffee.com/athevon) ☕
-
-## License
-
-MIT
+RaiUsage is a fork of [TokenEater](https://github.com/AThevon/TokenEater) by AThevon — cleaned up, simplified, and given a unified pastel UI. The fork strips the widgets, floating overlay, in-app updater, and theme engine down to a focused menu-bar app; adds a native "Sign in with Claude" OAuth login with automatic refresh; and rebuilds every surface (menu bar, popover, dashboard, settings, onboarding) on one minimal design system. Credit for the original concept and foundation goes to the upstream project.
 
