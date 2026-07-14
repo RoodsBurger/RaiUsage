@@ -16,37 +16,32 @@ Native macOS menu bar app to display Claude usage (session, weekly all models, w
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
-## Build
+## Build & Install (one script)
 
 ```bash
-git clone https://github.com/AThevon/TokenEater.git
-cd TokenEater
+git clone https://github.com/RoodsBurger/ClaudeUsage.git
+cd ClaudeUsage
+./build.sh
+```
 
-# Install XcodeGen
+`build.sh` installs XcodeGen if missing, generates the Xcode project, builds Release, copies the app to `/Applications`, and launches it.
+
+### Manual steps (what the script does)
+
+```bash
 brew install xcodegen
-
-# Generate Xcode project
 xcodegen generate
-
-# Build
 xcodebuild -project TokenEater.xcodeproj \
   -scheme TokenEaterApp \
   -configuration Release \
   -derivedDataPath build build
-```
-
-### Install
-
-```bash
 cp -R "build/Build/Products/Release/RaiUsage.app" /Applications/
 ```
 
-> **Note** - this section covers building from source for local development. The build above is signed with your Apple Development cert (or ad-hoc) and is **not notarized**, so Gatekeeper will block the first launch:
+> **Note** - local builds are ad-hoc signed and **not notarized**. Built on your own machine they carry no quarantine flag and open directly. If Gatekeeper ever blocks the launch:
 >
-> 1. Double-click **RaiUsage.app** in Applications - macOS will block it
-> 2. Open **System Settings -> Privacy & Security** -> scroll to the RaiUsage entry -> click **Open Anyway**
->
-> If you want a frictionless install, **download the official notarized DMG from [Releases](https://github.com/AThevon/TokenEater/releases/latest)** instead - it opens directly without any Gatekeeper prompt.
+> 1. Right-click **RaiUsage.app** in Applications > **Open**, or
+> 2. **System Settings -> Privacy & Security** -> scroll to the RaiUsage entry -> click **Open Anyway**
 
 ## Configuration
 
@@ -92,4 +87,4 @@ The OAuth token is managed by Claude Code and refreshes automatically.
 | Menu bar shows an error | Reopen the app and check the connection in Settings |
 | "Not connected" | Launch the app and complete onboarding (Sign in with Claude, or borrow Claude Code's session) |
 | Build fails | Verify `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` points to Xcode.app |
-| App flagged as malware | You're running an ad-hoc local build that stripped its quarantine attrs. Either reinstall via the official notarized DMG from [Releases](https://github.com/AThevon/TokenEater/releases/latest), or rebuild + approve via System Settings -> Privacy & Security -> Open Anyway |
+| App flagged as malware | Ad-hoc local builds are not notarized. Approve via System Settings -> Privacy & Security -> Open Anyway, or rebuild with `./build.sh` (it clears the quarantine flag) |

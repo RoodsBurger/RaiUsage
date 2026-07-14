@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Monitor your Claude AI usage limits directly from your macOS desktop.</strong>
   <br>
-  <a href="https://tokeneater.vercel.app">Website</a> · <a href="https://tokeneater.vercel.app/en/docs">Docs</a> · <a href="https://github.com/AThevon/TokenEater/releases/latest">Download</a>
+  <a href="#install">Install</a> · Fork of <a href="https://github.com/AThevon/TokenEater">AThevon/TokenEater</a>
 </p>
 
 <p align="center">
@@ -15,8 +15,6 @@
   <img src="https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white" alt="Swift 5.9">
   <img src="https://img.shields.io/badge/Claude-Pro%20%2F%20Max%20%2F%20Team-D97706" alt="Claude Pro / Max / Team">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
-  <img src="https://img.shields.io/github/v/release/AThevon/TokenEater?color=F97316" alt="Release">
-  <a href="https://buymeacoffee.com/athevon"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
 
 ---
@@ -37,21 +35,17 @@ A native macOS menu bar app with a dashboard window and a quick-glance popover t
 
 ## Install
 
-### Download DMG (recommended)
+RaiUsage is built from source — one script does everything (build, install to `/Applications`, launch).
 
-**[Download TokenEater.dmg](https://github.com/AThevon/TokenEater/releases/latest/download/TokenEater.dmg)**
-
-Open the DMG, drag TokenEater to Applications, and launch it. The DMG is signed with a Developer ID and notarized by Apple, so Gatekeeper lets it run on first launch without any extra steps.
-
-### Homebrew
+**Requirements:** macOS 14+, [Xcode](https://apps.apple.com/app/xcode/id497799835) (App Store, opened once), and [Homebrew](https://brew.sh).
 
 ```bash
-brew tap AThevon/tokeneater
-brew trust AThevon/tokeneater
-brew install --cask tokeneater
+git clone https://github.com/RoodsBurger/ClaudeUsage.git
+cd ClaudeUsage
+./build.sh
 ```
 
-> `brew trust` is required on Homebrew 6.0+, which no longer loads a third-party tap until you trust it.
+The script installs [XcodeGen](https://github.com/yonaskolb/XcodeGen) if missing, builds Release, copies the app to `/Applications`, and launches it. Local builds are ad-hoc signed (not notarized); built on your own machine they open directly — if Gatekeeper ever objects, right-click the app > **Open** once.
 
 ### First Setup
 
@@ -62,7 +56,13 @@ Requires a **Pro, Max, or Team plan**.
 
 ## Update
 
-If you installed via Homebrew: `brew update && brew upgrade --cask tokeneater`
+```bash
+cd ClaudeUsage
+git pull
+./build.sh
+```
+
+Settings and the connection are preserved across updates.
 
 ## Uninstall
 
@@ -72,15 +72,11 @@ rm -rf /Applications/RaiUsage.app
 rm -rf ~/Library/Application\ Support/com.raiusage.shared
 ```
 
-If installed via Homebrew: `brew uninstall --cask tokeneater`
+## Build from source (manual)
 
-## Build from source
+What `./build.sh` runs under the hood:
 
 ```bash
-# Requirements: macOS 14+, Xcode 16.4+, XcodeGen (brew install xcodegen)
-
-git clone https://github.com/AThevon/TokenEater.git
-cd TokenEater
 xcodegen generate
 xcodebuild -project TokenEater.xcodeproj -scheme TokenEaterApp \
   -configuration Release -derivedDataPath build build
@@ -162,7 +158,7 @@ rm -rf /Applications/RaiUsage.app
 
 > Some `Operation not permitted` errors on container metadata files are normal - macOS protects those, but the actual data is cleaned.
 
-After this, reinstall from the [latest release](https://github.com/AThevon/TokenEater/releases/latest/download/TokenEater.dmg) or via Homebrew.
+After this, reinstall with `./build.sh` (see [Install](#install)).
 
 ## Contributing
 

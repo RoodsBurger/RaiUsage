@@ -1,55 +1,57 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Build RaiUsage (Release), install it to /Applications, and launch it.
+# Local builds are ad-hoc signed and not notarized; built on this machine they
+# carry no quarantine flag, so macOS opens them directly. If Gatekeeper ever
+# complains, right-click the app > Open once.
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$PROJECT_DIR"
+cd "$(dirname "$0")"
+export PATH="/opt/homebrew/bin:$PATH"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+APP="RaiUsage.app"
+CONFIG="Release"
+DERIVED="build"
+DEST="/Applications/$APP"
 
-echo -e "${BLUE}=== RaiUsage — Build ===${NC}"
-
-# 1. Check Xcode
-if ! xcode-select -p | grep -q "Xcode.app"; then
-    echo -e "${RED}Xcode.app requis. Installe-le depuis le Mac App Store.${NC}"
-    echo "Puis lance: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
-    exit 1
+# 1. Xcode check
+if ! xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then
+  echo "error: Xcode.app required (App Store), then:" >&2
+  echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
+  exit 1
 fi
 
-# 2. Check/install XcodeGen
-if ! command -v xcodegen &> /dev/null; then
-    echo -e "${BLUE}Installation de XcodeGen via Homebrew...${NC}"
-    brew install xcodegen
+# 2. XcodeGen check
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "==> Installing XcodeGen via Homebrew"
+  brew install xcodegen
 fi
 
-# 3. Generate Xcode project
-echo -e "${BLUE}Generation du projet Xcode...${NC}"
+echo "==> Generating Xcode project"
 xcodegen generate
 
-# 4. Build
-echo -e "${BLUE}Build en cours...${NC}"
+echo "==> Building $CONFIG"
 xcodebuild \
-    -project TokenEater.xcodeproj \
-    -scheme TokenEaterApp \
-    -configuration Release \
-    -derivedDataPath build \
-    build 2>&1 | tail -20
+  -project TokenEater.xcodeproj \
+  -scheme TokenEaterApp \
+  -configuration "$CONFIG" \
+  -derivedDataPath "$DERIVED" \
+  -destination 'platform=macOS' \
+  CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual CODE_SIGNING_REQUIRED=NO \
+  build 2>&1 | tail -3
 
-# 5. Find the built app
-APP_PATH=$(find build -name "RaiUsage.app" -type d | head -1)
-
-if [ -n "$APP_PATH" ]; then
-    echo ""
-    echo -e "${GREEN}Build OK !${NC}"
-    echo -e "App: ${BLUE}$APP_PATH${NC}"
-    echo ""
-    echo "Pour installer:"
-    echo "  cp -R \"$APP_PATH\" /Applications/"
-    echo "  open \"/Applications/RaiUsage.app\""
-else
-    echo -e "${RED}Build echoue. Verifie les erreurs ci-dessus.${NC}"
-    exit 1
+BUILT="$DERIVED/Build/Products/$CONFIG/$APP"
+if [ ! -d "$BUILT" ]; then
+  echo "error: build product not found at $BUILT" >&2
+  exit 1
 fi
+
+echo "==> Installing to /Applications"
+killall RaiUsage 2>/dev/null || true
+sleep 1
+rm -rf "$DEST"
+cp -R "$BUILT" "$DEST"
+xattr -cr "$DEST"
+
+echo "==> Launching"
+open "$DEST"
+echo "==> Done."
