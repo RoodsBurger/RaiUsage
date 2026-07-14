@@ -17,6 +17,8 @@ enum OAuthErrorFormatter {
             return String(localized: "connect.oauth.error.cancelled")
         case .listenerFailed:
             return String(localized: "connect.oauth.error.listenerfailed")
+        case .persistenceFailed:
+            return String(localized: "connect.oauth.error.persistencefailed")
         }
     }
 }

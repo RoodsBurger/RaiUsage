@@ -61,4 +61,8 @@ enum OAuthError: Error, Equatable {
     case refreshFailed(Int)
     case cancelled
     case listenerFailed
+    /// A login succeeded over the network but persisting the tokens to the
+    /// app-owned Keychain store failed - no HTTP exchange is involved, so
+    /// this is distinct from `exchangeFailed`.
+    case persistenceFailed
 }

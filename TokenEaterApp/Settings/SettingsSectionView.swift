@@ -417,7 +417,8 @@ struct SettingsSectionView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(DS.Palette.accentSettings)
                         .controlSize(.small)
-                        .disabled(connectFlow.manualPasteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(connectFlow.isSubmittingManualCode
+                                  || connectFlow.manualPasteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                         Button(String(localized: "connect.signin.cancel")) {
                             connectFlow.cancelSignIn()

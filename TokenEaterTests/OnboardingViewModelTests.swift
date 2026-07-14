@@ -116,7 +116,7 @@ struct OnboardingViewModelTests {
         #expect(vm.oauthSignInStatus == .failed(.exchangeFailed(500)))
     }
 
-    @Test("signInWithClaude surfaces a persistence failure as an error state")
+    @Test("signInWithClaude surfaces a persistence failure as a dedicated persistenceFailed error")
     func signInWithClaudePersistenceFailureSetsErrorState() {
         let oauthService = MockOAuthService()
         let tokens = OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: .distantFuture)
@@ -128,7 +128,7 @@ struct OnboardingViewModelTests {
 
         vm.signInWithClaude()
 
-        #expect(vm.oauthSignInStatus == .failed(.exchangeFailed(-1)))
+        #expect(vm.oauthSignInStatus == .failed(.persistenceFailed))
     }
 
     @Test("switchToManualPaste moves to the manual code paste state")
@@ -169,6 +169,25 @@ struct OnboardingViewModelTests {
         vm.submitManualPasteCode()
 
         #expect(vm.oauthSignInStatus == .failed(.malformedCallback))
+    }
+
+    @Test("submitManualPasteCode ignores a second call while one exchange is in flight")
+    func submitManualPasteCodeGuardsAgainstDoubleSubmit() {
+        let oauthService = MockOAuthService()
+        oauthService.deferLoginCompletion = true
+        let vm = makeViewModel(oauthService: oauthService)
+        vm.manualPasteCode = "code#state"
+
+        vm.submitManualPasteCode()
+        #expect(vm.isSubmittingManualCode == true)
+
+        // Second tap while the first is unresolved must not start another exchange.
+        vm.submitManualPasteCode()
+        #expect(oauthService.completeManualLoginCallCount == 1)
+
+        // Resolving clears the in-flight flag so a later retry is allowed.
+        oauthService.resolvePendingLogin(.failure(.malformedCallback))
+        #expect(vm.isSubmittingManualCode == false)
     }
 
     @Test("cancelSignIn cancels the in-flight login and resets to idle")

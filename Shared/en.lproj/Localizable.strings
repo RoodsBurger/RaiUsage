@@ -110,6 +110,7 @@
 "connect.oauth.error.refreshfailed" = "Couldn't refresh your session (status %d). Please sign in again.";
 "connect.oauth.error.cancelled" = "Sign-in was cancelled.";
 "connect.oauth.error.listenerfailed" = "Couldn't open the local sign-in listener. Try pasting the code manually.";
+"connect.oauth.error.persistencefailed" = "Couldn't save your sign-in. Check Keychain access and try again.";
 
 /* Guide */
 "guide.title" = "Setup Guide";

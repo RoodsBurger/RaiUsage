@@ -38,4 +38,9 @@ struct OAuthErrorFormatterTests {
     func listenerFailed() {
         #expect(!OAuthErrorFormatter.message(for: .listenerFailed).isEmpty)
     }
+
+    @Test("persistenceFailed has a non-empty localized message")
+    func persistenceFailed() {
+        #expect(!OAuthErrorFormatter.message(for: .persistenceFailed).isEmpty)
+    }
 }

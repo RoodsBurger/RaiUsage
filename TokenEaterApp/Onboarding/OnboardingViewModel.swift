@@ -49,6 +49,9 @@ final class OnboardingViewModel: ObservableObject {
     @Published var oauthSignInStatus: OAuthSignInStatus = .idle
     /// Bound to the manual "code#state" paste field shown in `.manualCodePaste`.
     @Published var manualPasteCode: String = ""
+    /// True while a manual-paste exchange is in flight, so the UI can disable
+    /// the submit button and prevent a double-submit / duplicate exchange.
+    @Published var isSubmittingManualCode: Bool = false
     /// Account email for the connected-state display, fetched from the
     /// profile endpoint once a durable OAuth login exists.
     @Published var connectedAccountEmail: String?
@@ -203,6 +206,7 @@ final class OnboardingViewModel: ObservableObject {
     /// from it on this `@MainActor` type.
     func signInWithClaude() {
         manualPasteCode = ""
+        isSubmittingManualCode = false
         oauthSignInStatus = .browserOpenedWaiting
         oauthService.beginLogin { [weak self] result in
             self?.handleOAuthResult(result)
@@ -217,6 +221,8 @@ final class OnboardingViewModel: ObservableObject {
     }
 
     func submitManualPasteCode() {
+        guard !isSubmittingManualCode else { return }
+        isSubmittingManualCode = true
         oauthService.completeManualLogin(pasted: manualPasteCode) { [weak self] result in
             self?.handleOAuthResult(result)
         }
@@ -227,6 +233,7 @@ final class OnboardingViewModel: ObservableObject {
         oauthService.cancelLogin()
         oauthSignInStatus = .idle
         manualPasteCode = ""
+        isSubmittingManualCode = false
     }
 
     /// Signs out of the app-owned OAuth login. The app falls back to a
@@ -235,6 +242,7 @@ final class OnboardingViewModel: ObservableObject {
         tokenProvider.disconnectOAuth()
         oauthSignInStatus = .idle
         manualPasteCode = ""
+        isSubmittingManualCode = false
         connectedAccountEmail = nil
     }
 
@@ -250,6 +258,7 @@ final class OnboardingViewModel: ObservableObject {
     }
 
     private func handleOAuthResult(_ result: Result<OAuthTokens, OAuthError>) {
+        isSubmittingManualCode = false
         switch result {
         case .success(let tokens):
             do {
@@ -258,7 +267,7 @@ final class OnboardingViewModel: ObservableObject {
                 manualPasteCode = ""
                 Task { await self.refreshConnectedAccountEmail() }
             } catch {
-                oauthSignInStatus = .failed(.exchangeFailed(-1))
+                oauthSignInStatus = .failed(.persistenceFailed)
             }
         case .failure(let error):
             oauthSignInStatus = .failed(error)
