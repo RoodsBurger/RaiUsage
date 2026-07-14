@@ -309,85 +309,57 @@ private struct PopoverHeaderRow: View {
     }
 }
 
-// MARK: - Metric row + inline pacing chip
+// MARK: - Metric row (stacked: label/percent, full-width bar, reset/pacing)
 
 struct PopoverMetricRowView: View {
     let row: PopoverMetricRow
 
-    /// Shared right edge: `pct%` on line 1 and the pacing delta on line 2 both
-    /// sit in a `valueWidth`-trailing column, so the two lines' right edges align.
-    private static let labelWidth: CGFloat = 56
-    private static let valueWidth: CGFloat = 46
-    private static let pacingBarWidth: CGFloat = 40
-
-    private var showsSecondLine: Bool { !row.resetText.isEmpty || row.pacing != nil }
+    private var showsThirdLine: Bool { !row.resetText.isEmpty || row.pacing != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 Text(row.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: Self.labelWidth, alignment: .leading)
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(DS.Pastel.track)
-                        Capsule()
-                            .fill(row.zone.color)
-                            .frame(width: geo.size.width * CGFloat(min(max(row.pct, 0), 100)) / 100)
-                    }
-                }
-                .frame(height: 6)
+                Spacer()
 
                 Text("\(row.pct)%")
                     .font(.callout)
                     .monospacedDigit()
-                    .frame(width: Self.valueWidth, alignment: .trailing)
+                    .foregroundStyle(.primary)
             }
 
-            if showsSecondLine {
-                HStack(spacing: 8) {
-                    Color.clear.frame(width: Self.labelWidth, height: 1)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(DS.Pastel.track)
+                    Capsule()
+                        .fill(row.zone.color)
+                        .frame(width: geo.size.width * CGFloat(min(max(row.pct, 0), 100)) / 100)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 6)
 
+            if showsThirdLine {
+                HStack {
                     Text(row.resetText)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
 
-                    Spacer(minLength: 8)
+                    Spacer()
 
                     if let pacing = row.pacing {
-                        PopoverPacingChip(pacing: pacing, barWidth: Self.pacingBarWidth, valueWidth: Self.valueWidth)
+                        Text("\(pacing.delta >= 0 ? "+" : "")\(Int(pacing.delta))%")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(pacing.zone.semanticColor)
                     }
                 }
             }
-        }
-    }
-}
-
-private struct PopoverPacingChip: View {
-    let pacing: PacingResult
-    let barWidth: CGFloat
-    let valueWidth: CGFloat
-
-    var body: some View {
-        HStack(spacing: 8) {
-            PacingBar(
-                actual: pacing.actualUsage,
-                expected: pacing.expectedUsage,
-                zone: pacing.zone,
-                gradient: PopoverColors.zoneGradient(pacing.zone),
-                compact: true
-            )
-            .frame(width: barWidth)
-
-            Text("\(pacing.delta >= 0 ? "+" : "")\(Int(pacing.delta))%")
-                .font(.caption2)
-                .monospacedDigit()
-                .foregroundStyle(pacing.zone.semanticColor)
-                .frame(width: valueWidth, alignment: .trailing)
         }
     }
 }
