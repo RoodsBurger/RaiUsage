@@ -1,8 +1,8 @@
-# Contributing to TokenEater
+# Contributing to RaiUsage
 
 Hey, thanks for thinking about contributing ! Bug reports, feature ideas, code PRs, all of it helps a ton
 
-TokenEater is a side project so this guide is more "here's how things tend to work" than a strict ruleset
+RaiUsage is a side project so this guide is more "here's how things tend to work" than a strict ruleset
 
 Couple of small things to know:
 
@@ -14,10 +14,10 @@ Couple of small things to know:
 Use the **Bug report** template, it'll walk you through it. The more info you give, the easier the bug is to track down. The most useful stuff:
 
 - macOS version
-- TokenEater version (in *Settings -> About* or the menu bar tooltip)
+- RaiUsage version (in *Settings -> About* or the menu bar tooltip)
 - Repro steps if you have them
 - A screenshot or recording for anything visual
-- Console logs from `Console.app` (filter by `TokenEater`) for anything mysterious
+- Console logs from `Console.app` (filter by `RaiUsage`) for anything mysterious
 
 If you can't reproduce reliably that's fine, just say so
 
@@ -57,9 +57,9 @@ If you're not sure about something, don't stress, I'd rather give feedback in a 
 Examples:
 
 ```
-feat: add keyboard shortcut to toggle agent watchers
+feat: add rotate mode to the menu bar engine
 fix: refresh slider hidden under popover edge
-chore: bump Sparkle to 2.6.4
+chore: drop DS tokens orphaned by the reskin
 ```
 
 ### Tests
@@ -75,7 +75,7 @@ xcodebuild -project TokenEater.xcodeproj -scheme TokenEaterTests \
   test
 ```
 
-For SwiftUI or widget changes, manual testing matters more, build a Release version and try it. The *Build + Nuke + Install* one-liner in [`AGENTS.md`](AGENTS.md) is what I use locally
+For SwiftUI changes, manual testing matters more, build a Release version and try it. The *Build + Install* one-liner in [`AGENTS.md`](AGENTS.md) is what I use locally
 
 > **External contributors**: that one-liner hardcodes my Apple Developer Team ID (`DEVELOPMENT_TEAM=S7B8M9JYF4`), so it won't work on your machine as-is. Two options:
 >

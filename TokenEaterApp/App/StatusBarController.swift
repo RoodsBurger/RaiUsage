@@ -4,31 +4,51 @@ import Combine
 
 @MainActor
 final class StatusBarController: NSObject {
+    /// Floor for the non-onboarding dashboard window -> wide enough for
+    /// `SidebarNav`'s minimum column width (190pt) plus a usable detail pane.
+    /// Shared by `showDashboard` (`minSize`/`contentMinSize`) and
+    /// `windowWillResize`'s hard clamp so both stay in sync.
+    static let dashboardMinSize = NSSize(width: 760, height: 480)
+
     private var statusItem: NSStatusItem
-    private let popover = NSPopover()
+    /// Borderless, non-activating panel that replaces `NSPopover` for the
+    /// quick-glance dropdown - no arrow, RaiDrive-style. Backed by an
+    /// `NSVisualEffectView` (see `makePopoverPanel`) so it keeps the same
+    /// native translucent material `NSPopover` gave it for free. Rebuilt
+    /// lazily and reused across opens; its SwiftUI content is torn down and
+    /// recreated on every open/close (see `installPopoverContent`/
+    /// `dismissPopover`) so it always starts from fresh state, matching the
+    /// old `NSPopover`'s own contentViewController lifecycle.
+    private var popoverPanel: NSPanel?
+    private var popoverHostingController: NSHostingController<AnyView>?
     private var dashboardWindow: NSWindow?
     private var eventMonitor: Any?
     private var localKeyMonitor: Any?
     private var appDeactivateObserver: NSObjectProtocol?
     private var spaceChangeObserver: NSObjectProtocol?
+    /// Re-renders the status item text/dot color when the menu bar's actual
+    /// background (translucent - shows the desktop through it) flips between
+    /// dark and light, independent of any periodic tick.
+    private var appearanceObservation: NSKeyValueObservation?
     private var cancellables = Set<AnyCancellable>()
     private var countdownCancellable: AnyCancellable?
+    private var rotateCancellable: AnyCancellable?
+    /// Index into the visible pins for `.rotate` display mode. Renderer wraps
+    /// it modulo the visible count, so any monotonically-increasing value works.
+    private var rotateIndex = 0
 
     private let usageStore: UsageStore
-    private let themeStore: ThemeStore
     private let settingsStore: SettingsStore
     private let vendorStatusStore: VendorStatusStore
     private let tokenFileMonitor: TokenFileMonitorProtocol
 
     init(
         usageStore: UsageStore,
-        themeStore: ThemeStore,
         settingsStore: SettingsStore,
         vendorStatusStore: VendorStatusStore,
         tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
     ) {
         self.usageStore = usageStore
-        self.themeStore = themeStore
         self.settingsStore = settingsStore
         self.vendorStatusStore = vendorStatusStore
         self.tokenFileMonitor = tokenFileMonitor
@@ -38,7 +58,6 @@ final class StatusBarController: NSObject {
         super.init()
 
         setupStatusItem()
-        setupPopover()
         observeStoreChanges()
         observeDashboardRequest()
 
@@ -71,34 +90,106 @@ final class StatusBarController: NSObject {
         // (and trackpad two-finger tap - macOS surfaces those as rightMouseUp)
         // to a contextual menu while keeping left-click tied to the popover.
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        // The menu bar is translucent - its actual on-screen background can
+        // be dark or light independent of the system's overall Light/Dark
+        // Mode setting (it shows the desktop picture through it). Watch the
+        // button's own effective appearance (not `NSApp`'s) and re-render
+        // immediately when it flips, on top of the periodic re-read every
+        // `updateMenuBarIcon()` tick already does.
+        appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.updateMenuBarIcon() }
+        }
         updateMenuBarIcon()
     }
 
-    private func setupPopover() {
-        // .applicationDefined (not .transient): NSPopover's own transient
-        // event-tracking dismisses the popover on the first mouse move when it
-        // is opened over a fullscreen-app Space. We keep full control of
-        // dismissal instead (see startPopoverDismissMonitors): click-outside,
-        // Escape, app-deactivation (Cmd-Tab) and Space changes all close it, so
-        // it matches the .transient behaviour on the desktop while no longer
-        // self-dismissing over fullscreen.
-        popover.behavior = .applicationDefined
-        popover.appearance = NSAppearance(named: .darkAqua)
+    /// Whether the status item currently renders on a dark menu bar
+    /// background - drives `MenuBarRenderer`'s adaptive text/dot color.
+    /// Falls back to `true` (dark) if the button isn't available yet.
+    private var menuBarIsDark: Bool {
+        guard let button = statusItem.button else { return true }
+        return button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
+    /// Borderless, `.nonactivatingPanel` panel anchored under the status item.
+    /// No arrow (unlike `NSPopover`), no forced appearance - the
+    /// `NSVisualEffectView` backing follows the system material, so it tracks
+    /// light/dark automatically instead of always rendering dark. Dismissal is
+    /// fully manual (see `startPopoverDismissMonitors`): click-outside,
+    /// Escape, app-deactivation (Cmd-Tab) and Space changes all close it, the
+    /// same set `NSPopover`'s `.applicationDefined` behavior gave us before -
+    /// still needed since a floating panel has no built-in transient dismissal.
+    private func makePopoverPanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 200),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        panel.isFloatingPanel = true
+        panel.level = .popUpMenu
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.animationBehavior = .utilityWindow
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+
+        // Native vibrancy: NSPopover rendered this automatically; a borderless
+        // panel needs its own NSVisualEffectView, masked to rounded corners.
+        let effectView = NSVisualEffectView()
+        effectView.material = .popover
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 12
+        effectView.layer?.masksToBounds = true
+        panel.contentView = effectView
+
+        return panel
+    }
+
+    /// (Re)builds the panel's SwiftUI content from scratch - same lifecycle
+    /// `NSPopover` had (a fresh `contentViewController` on every open), so the
+    /// popover never carries stale view state between opens.
     private func installPopoverContent() {
+        let panel = popoverPanel ?? makePopoverPanel()
+        popoverPanel = panel
+        guard let effectView = panel.contentView else { return }
+
+        popoverHostingController?.view.removeFromSuperview()
+
         let popoverView = MenuBarPopoverView()
             .environmentObject(usageStore)
-            .environmentObject(themeStore)
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
-        popover.contentViewController = NSHostingController(rootView: popoverView)
+        let hosting = NSHostingController(rootView: AnyView(popoverView))
+        let fitSize = hosting.view.fittingSize
+        hosting.view.frame = NSRect(origin: .zero, size: fitSize)
+        hosting.view.autoresizingMask = [.width, .height]
+        effectView.addSubview(hosting.view)
+        popoverHostingController = hosting
+    }
+
+    /// Re-sizes the already-open panel when its SwiftUI content's ideal size
+    /// changes (e.g. a live refresh reveals/hides a metric row), keeping the
+    /// top-right corner anchored under the status item. Cheap no-op otherwise -
+    /// hooked into the same debounced store-change sink `updateMenuBarIcon()`
+    /// already uses (see `observeStoreChanges`).
+    private func resizePopoverPanelIfNeeded() {
+        guard let panel = popoverPanel, panel.isVisible, let hosting = popoverHostingController else { return }
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitSize = hosting.view.fittingSize
+        let size = NSSize(width: max(fitSize.width, 340), height: max(fitSize.height, 1))
+        guard abs(size.height - panel.frame.height) > 0.5 || abs(size.width - panel.frame.width) > 0.5 else { return }
+        let topRight = NSPoint(x: panel.frame.maxX, y: panel.frame.maxY)
+        panel.setContentSize(size)
+        panel.setFrameOrigin(NSPoint(x: topRight.x - size.width, y: topRight.y - size.height))
     }
 
     private func observeStoreChanges() {
         Publishers.MergeMany(
             usageStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            themeStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             settingsStore.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             vendorStatusStore.objectWillChange.map { _ in () }.eraseToAnyPublisher()
         )
@@ -106,15 +197,27 @@ final class StatusBarController: NSObject {
         .sink { [weak self] _ in
             self?.updateMenuBarIcon()
             self?.updateCountdownTimer()
+            self?.resizePopoverPanelIfNeeded()
         }
         .store(in: &cancellables)
 
         Timer.publish(every: 60, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in
-                guard let self,
-                      self.settingsStore.pinnedMetrics.contains(.sessionReset) else { return }
+                guard let self else { return }
+                let needsCountdown = self.settingsStore.pinnedMetrics.contains(.sessionReset)
+                    || self.settingsStore.display.menuBarConfig.pinned.contains(where: { $0.showCountdown })
+                guard needsCountdown else { return }
                 self.usageStore.refreshResetCountdown()
             }
+            .store(in: &cancellables)
+
+        // Rotate timer: only runs while displayMode == .rotate, restarts
+        // whenever the mode or cadence changes so a cadence edit takes effect
+        // immediately instead of waiting out the old interval.
+        settingsStore.display.$menuBarConfig
+            .map { ($0.displayMode, $0.rotateSeconds) }
+            .removeDuplicates(by: ==)
+            .sink { [weak self] _ in self?.updateRotateTimer() }
             .store(in: &cancellables)
 
         settingsStore.pacing.$margin
@@ -185,9 +288,8 @@ final class StatusBarController: NSObject {
         usageStore.notifTogglesProvider = { [weak self] in self?.makeNotificationToggles() }
         vendorStatusStore.notifTogglesProvider = { [weak self] in self?.makeNotificationToggles() }
         vendorStatusStore.healthyPollInterval = TimeInterval(settingsStore.statusPollInterval)
-        usageStore.reloadConfig(thresholds: themeStore.thresholds)
-        usageStore.startAutoRefresh(thresholds: themeStore.thresholds)
-        themeStore.syncToSharedFile()
+        usageStore.reloadConfig(thresholds: settingsStore.thresholds)
+        usageStore.startAutoRefresh(thresholds: settingsStore.thresholds)
 
         // Monitor token files (credentials + config.json) for changes
         tokenFileMonitor.startMonitoring()
@@ -239,7 +341,7 @@ final class StatusBarController: NSObject {
             smartColorEnabled: settingsStore.smartColorEnabled,
             smartColorProfile: settingsStore.smartColorProfile,
             pacingMargin: Double(settingsStore.pacingMargin),
-            thresholds: themeStore.thresholds,
+            thresholds: settingsStore.thresholds,
             vendorDegraded: settingsStore.notifVendorDegraded,
             vendorRestored: settingsStore.notifVendorRestored
         )
@@ -269,15 +371,12 @@ final class StatusBarController: NSObject {
     @objc private func handleDashboardRequest(_ notification: Notification) {
         showDashboard()
 
+        // Re-post as-is once validated -> `NavigationTarget.parse` also
+        // gates the payload MainAppView's own `.navigateToSection` listener
+        // will parse, so an unrecognised section never reaches the sidebar.
         if let section = notification.userInfo?["section"] as? String,
-           let target = NavigationTarget.parse(section) {
-            let payload: String
-            if let sub = target.settingsSection {
-                payload = "settings.\(sub.rawValue)"
-            } else {
-                payload = target.space.rawValue
-            }
-            NotificationCenter.default.post(name: .navigateToSection, object: nil, userInfo: ["section": payload])
+           NavigationTarget.parse(section) != nil {
+            NotificationCenter.default.post(name: .navigateToSection, object: nil, userInfo: ["section": section])
         }
     }
 
@@ -285,58 +384,86 @@ final class StatusBarController: NSObject {
 
     private func updateMenuBarIcon() {
         let image = MenuBarRenderer.render(MenuBarRenderer.RenderData(
-            pinnedMetrics: settingsStore.pinnedMetrics,
-            displaySonnet: settingsStore.displaySonnet,
+            menuBarConfig: settingsStore.display.menuBarConfig,
+            rotateIndex: rotateIndex,
+            hasConfig: usageStore.hasConfig,
+            hasError: usageStore.hasError,
+            thresholds: settingsStore.thresholds,
+            smartColorEnabled: settingsStore.smartColorEnabled,
+            smartColorProfile: settingsStore.smartColorProfile,
+            pacingMargin: Double(settingsStore.pacingMargin),
             fiveHourPct: usageStore.fiveHourPct,
             sevenDayPct: usageStore.sevenDayPct,
             sonnetPct: usageStore.sonnetPct,
-            weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
-            weeklyPacingZone: usageStore.pacingResult?.zone ?? .onTrack,
+            designPct: usageStore.designPct,
+            fablePct: usageStore.fablePct,
+            extraCreditsPct: usageStore.extraCreditsPct,
+            hasFiveHourBucket: usageStore.lastUsage?.fiveHour != nil,
             hasWeeklyPacing: usageStore.pacingResult != nil,
-            sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
-            sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
             hasSessionPacing: usageStore.fiveHourPacing != nil,
-            sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
-            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
-            hasConfig: usageStore.hasConfig,
-            hasError: usageStore.hasError,
-            themeColors: themeStore.current,
-            thresholds: themeStore.thresholds,
-            menuBarMonochrome: themeStore.menuBarMonochrome,
-            fiveHourReset: usageStore.fiveHourReset,
-            fiveHourResetAbsolute: usageStore.fiveHourResetAbsolute,
+            hasDesign: usageStore.hasDesign,
+            hasFable: usageStore.hasFable,
+            hasExtraCredits: usageStore.hasExtraCredits,
             fiveHourResetDate: usageStore.lastUsage?.fiveHour?.resetsAtDate,
             sevenDayResetDate: usageStore.lastUsage?.sevenDay?.resetsAtDate,
             sonnetResetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
             designResetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
-            hasFiveHourBucket: usageStore.lastUsage?.fiveHour != nil,
-            resetDisplayFormat: settingsStore.resetDisplayFormat,
-            resetTextColorHex: settingsStore.resetTextColorHex,
-            sessionPeriodColorHex: settingsStore.sessionPeriodColorHex,
-            smartResetColor: settingsStore.smartColorEnabled,
-            smartColorProfile: settingsStore.smartColorProfile,
-            pacingMargin: Double(settingsStore.pacingMargin),
-            menuBarStyle: settingsStore.menuBarStyle,
-            pacingShape: settingsStore.pacingShape,
-            designPct: usageStore.designPct,
-            hasDesign: usageStore.hasDesign,
-            fablePct: usageStore.fablePct,
-            hasFable: usageStore.hasFable,
             fableResetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
+            resetDisplayFormat: settingsStore.resetDisplayFormat,
+            fiveHourReset: usageStore.fiveHourReset,
+            sevenDayReset: usageStore.sevenDayReset,
+            sonnetReset: usageStore.sonnetReset,
+            designReset: usageStore.designReset,
+            fableReset: usageStore.fableReset,
+            fiveHourResetAbsolute: usageStore.fiveHourResetAbsolute,
+            sevenDayResetAbsolute: usageStore.sevenDayResetAbsolute,
+            sonnetResetAbsolute: usageStore.sonnetResetAbsolute,
+            designResetAbsolute: usageStore.designResetAbsolute,
+            fableResetAbsolute: usageStore.fableResetAbsolute,
+            sessionPacingDelta: Int(usageStore.fiveHourPacing?.delta ?? 0),
+            sessionPacingZone: usageStore.fiveHourPacing?.zone ?? .onTrack,
+            weeklyPacingDelta: Int(usageStore.pacingResult?.delta ?? 0),
+            weeklyPacingZone: usageStore.pacingResult?.zone ?? .onTrack,
+            sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
+            weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
+            extraCreditsUsedMinorUnits: usageStore.extraUsage?.usedCredits ?? 0,
+            extraCreditsLimitMinorUnits: usageStore.extraUsage?.monthlyLimit ?? 0,
+            extraCreditsCurrency: usageStore.extraUsage?.currency ?? "USD",
             outageActive: settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded,
             outageHealth: vendorStatusStore.worstHealth,
             nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) },
-            extraCreditsPct: usageStore.extraCreditsPct,
-            hasExtraCredits: usageStore.hasExtraCredits
+            menuBarIsDark: menuBarIsDark
         ))
         statusItem.button?.image = image
+    }
+
+    /// Starts/stops the rotate timer to match `displayMode`/`rotateSeconds`.
+    /// Always rebuilt (never just left running) so a cadence edit takes
+    /// effect on the next tick instead of finishing out the old interval.
+    private func updateRotateTimer() {
+        rotateCancellable?.cancel()
+        rotateCancellable = nil
+
+        let config = settingsStore.display.menuBarConfig
+        guard config.displayMode == .rotate else { return }
+
+        let interval = TimeInterval(max(1, config.rotateSeconds))
+        rotateCancellable = Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.rotateIndex += 1
+                self.updateMenuBarIcon()
+            }
     }
 
     /// Run a 1-second redraw ONLY while an outage badge is visible, so the
     /// menu-bar countdown ticks without waking the CPU every second otherwise.
     private func updateCountdownTimer() {
         let badgeCountdown = settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded
-        let pinCountdown = settingsStore.pinnedMetrics.contains(.serviceStatus) && vendorStatusStore.worstHealth == .down
+        let pinCountdown = (settingsStore.pinnedMetrics.contains(.serviceStatus)
+            || settingsStore.display.menuBarConfig.pinned.contains(where: { $0.id == .serviceStatus }))
+            && vendorStatusStore.worstHealth == .down
         let active = badgeCountdown || pinCountdown
         if active, countdownCancellable == nil {
             countdownCancellable = Timer.publish(every: 1, on: .main, in: .common)
@@ -352,8 +479,8 @@ final class StatusBarController: NSObject {
 
     @objc private func statusBarClicked() {
         // Right-click or control-click routes to the contextual menu so users
-        // get quick access to the most common actions (refresh, variant
-        // switching, settings shortcuts, quit) without opening the popover.
+        // get quick access to the most common actions (refresh, settings
+        // shortcuts, quit) without opening the popover.
         if let event = NSApp.currentEvent,
            event.type == .rightMouseUp
             || (event.type == .leftMouseUp && event.modifierFlags.contains(.control)) {
@@ -399,29 +526,6 @@ final class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
-        // Popover layout submenu
-        let variantItem = NSMenuItem(
-            title: String(localized: "contextmenu.variant"),
-            action: nil,
-            keyEquivalent: ""
-        )
-        let variantSub = NSMenu()
-        for variant in PopoverVariant.allCases {
-            let item = NSMenuItem(
-                title: variant.localizedLabel,
-                action: #selector(contextSelectVariant(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = variant.rawValue
-            item.state = (settingsStore.popoverConfig.activeVariant == variant) ? .on : .off
-            variantSub.addItem(item)
-        }
-        variantItem.submenu = variantSub
-        menu.addItem(variantItem)
-
-        menu.addItem(.separator())
-
         // Settings submenu (direct section shortcuts)
         let settingsItem = NSMenuItem(
             title: String(localized: "contextmenu.settings"),
@@ -463,12 +567,6 @@ final class StatusBarController: NSObject {
         showDashboard()
     }
 
-    @objc private func contextSelectVariant(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let variant = PopoverVariant(rawValue: raw) else { return }
-        settingsStore.popoverConfig.activeVariant = variant
-    }
-
     @objc private func contextOpenSection(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String else { return }
         showDashboard()
@@ -484,57 +582,44 @@ final class StatusBarController: NSObject {
     }
 
     private func togglePopover() {
-        if popover.isShown {
+        if let panel = popoverPanel, panel.isVisible {
             dismissPopover()
         } else {
-            guard let button = statusItem.button else { return }
-            installPopoverContent()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
-            stylePopoverWindow()
-            startPopoverDismissMonitors()
+            showPopover()
         }
     }
 
-    /// Post-show fixes for the popover's own window. Runs on the next runloop
-    /// turn because the NSPopover window isn't attached synchronously after show.
-    private func stylePopoverWindow() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let popoverWindow = self.popover.contentViewController?.view.window else { return }
+    private func showPopover() {
+        guard let button = statusItem.button, let buttonWindow = button.window else { return }
+        installPopoverContent()
+        guard let panel = popoverPanel, let hosting = popoverHostingController else { return }
 
-            // Fullscreen fix: a menu-bar popover opened over a fullscreen-app
-            // Space is created on the default Space, so the cursor over the
-            // visible popover reads as "outside" and the .transient behaviour
-            // dismisses it on the first mouse move. Let the popover window join
-            // the active (fullscreen) Space so the cursor registers as inside.
-            popoverWindow.collectionBehavior.insert(.canJoinAllSpaces)
-            popoverWindow.collectionBehavior.insert(.fullScreenAuxiliary)
+        // Fullscreen fix: a menu-bar panel opened over a fullscreen-app Space
+        // is created on the default Space, so the cursor over the visible
+        // panel would read as "outside" and the click-outside monitor below
+        // would dismiss it on the first mouse move. Setting this directly (no
+        // deferred runloop turn needed - unlike the old NSPopover, we own the
+        // panel synchronously) keeps the panel on the active Space instead.
+        panel.collectionBehavior.insert(.canJoinAllSpaces)
+        panel.collectionBehavior.insert(.fullScreenAuxiliary)
 
-            // Arrow-colour fix: on macOS 26 the NSPopoverFrame draws its arrow
-            // with a translucent (glass) material while our content is opaque,
-            // so the bare arrow shows through. There is no NSVisualEffectView to
-            // tint; paint an opaque backing on the frame view itself (which is
-            // clipped to the popover shape, arrow included) below the content.
-            if let frameView = self.popover.contentViewController?.view.superview {
-                // Idempotent: NSPopover reuses the same frame view across opens,
-                // so drop any tint left by a previous open before adding a new one
-                // (otherwise one NSView + layer leaks per open).
-                let tintID = NSUserInterfaceItemIdentifier("popoverArrowTint")
-                frameView.subviews
-                    .filter { $0.identifier == tintID }
-                    .forEach { $0.removeFromSuperview() }
-                let tint = NSView(frame: frameView.bounds)
-                tint.identifier = tintID
-                tint.autoresizingMask = [.width, .height]
-                tint.wantsLayer = true
-                tint.layer?.backgroundColor = Self.popoverBackgroundColor.cgColor
-                frameView.addSubview(tint, positioned: .below, relativeTo: frameView.subviews.first)
-            }
-        }
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitSize = hosting.view.fittingSize
+        let size = NSSize(width: max(fitSize.width, 340), height: max(fitSize.height, 1))
+        panel.setContentSize(size)
+
+        let buttonFrameInScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let gap: CGFloat = 6
+        panel.setFrameOrigin(NSPoint(
+            x: buttonFrameInScreen.maxX - size.width,
+            y: buttonFrameInScreen.minY - size.height - gap
+        ))
+
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
+        startPopoverDismissMonitors()
     }
-
-    /// Opaque dark shared by the popover layouts (see ClassicLayoutView).
-    private static let popoverBackgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1)
 
     func showDashboard() {
         dismissPopover()
@@ -553,7 +638,6 @@ final class StatusBarController: NSObject {
 
         let appView = MainAppView()
             .environmentObject(usageStore)
-            .environmentObject(themeStore)
             .environmentObject(settingsStore)
             .environmentObject(vendorStatusStore)
 
@@ -586,6 +670,10 @@ final class StatusBarController: NSObject {
         // stuck behind the titlebar strip.
         window.isMovableByWindowBackground = isOnboarding
         window.delegate = self
+        // Dark-first: the app's fixed-dark DS.Pastel surfaces pair with adaptive
+        // .primary/.secondary text, which would read as black-on-black under a
+        // light system appearance. Pin the window to dark so text stays legible.
+        window.appearance = NSAppearance(named: .darkAqua)
 
         let hostingController = NSHostingController(rootView: appView)
         hostingController.sizingOptions = []
@@ -597,9 +685,9 @@ final class StatusBarController: NSObject {
             window.minSize = size
             window.maxSize = size
         } else {
-            window.minSize = NSSize(width: 600, height: 440)
-            window.contentMinSize = NSSize(width: 600, height: 440)
-            window.setFrameAutosaveName("TokenEaterMain")
+            window.minSize = Self.dashboardMinSize
+            window.contentMinSize = Self.dashboardMinSize
+            window.setFrameAutosaveName("RaiUsageMain")
         }
 
         window.makeKeyAndOrderFront(nil)
@@ -636,7 +724,7 @@ final class StatusBarController: NSObject {
         window.contentMaxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         window.minSize = NSSize(width: 600, height: 440)
         window.isMovableByWindowBackground = false
-        window.setFrameAutosaveName("TokenEaterMain")
+        window.setFrameAutosaveName("RaiUsageMain")
         let mainSize = NSSize(width: 940, height: 700)
         window.setContentSize(mainSize)
         window.center()
@@ -692,8 +780,9 @@ final class StatusBarController: NSObject {
 
     /// Close the popover and tear down every dismissal monitor/observer.
     private func dismissPopover() {
-        popover.performClose(nil)
-        popover.contentViewController = nil
+        popoverPanel?.orderOut(nil)
+        popoverHostingController?.view.removeFromSuperview()
+        popoverHostingController = nil
         stopPopoverDismissMonitors()
     }
 
@@ -744,8 +833,8 @@ extension StatusBarController: NSWindowDelegate {
     /// for the `minSize` / `contentMinSize` properties.
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         NSSize(
-            width: max(frameSize.width, 600),
-            height: max(frameSize.height, 440)
+            width: max(frameSize.width, StatusBarController.dashboardMinSize.width),
+            height: max(frameSize.height, StatusBarController.dashboardMinSize.height)
         )
     }
 }

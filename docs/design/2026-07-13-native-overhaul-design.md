@@ -81,9 +81,66 @@ header); its session-scanning half goes with the overlay.
 
 ## 2. Design system
 
-RaiDrive's conventions, codified as the single `DS` namespace (replacing the three
-existing systems). The design is 100% system-semantic; no hex colors, automatic
-dark/light.
+> **REVISED 2026-07-13 (owner design review):** the original "system colors only,
+> no hex" rule is superseded. The owner wants a specific **pastel palette** and a
+> **solid, opaque, dark** look (RaiDrive-like, not translucent). Hex is now allowed
+> **only** in the one `DS` palette definition; every view still references `DS`
+> tokens / `RiskZone` / `PacingZone`, never raw hex. The app is **dark-first**
+> (fixed dark panels); only the **menu bar** adapts to the wallpaper.
+
+### Pastel palette (single source of truth in `DS`)
+
+| Token | Pastel (dark bg) | Deepened (light bg, menu-bar only) |
+|---|---|---|
+| risk OK (green) | `#86D6A0` | `#4FAE74` |
+| risk warning (amber) | `#F2C288` | `#D99A4E` |
+| risk critical (coral) | `#EF9A8D` | `#D46A58` |
+| info / on-track (blue) | `#93B4EE` | `#5B82D6` |
+
+Surfaces: **app windows** are opaque solid dark (no wash-out) — window base
+`#161719`, card/elevated `#1A1B1E`, hairline `#2C2E33`, gauge track `#26282D`.
+The **popover** is the exception: it keeps the **native macOS translucent window
+material** (RaiDrive-style vibrancy), not a solid fill — its cards/tracks still
+use the tokens above for contrast over the material. No glow anywhere. Text
+keeps SwiftUI `.primary` / `.secondary` / `.tertiary` (resolve white-ish on the
+dark surfaces). `RiskZone.color`/`.nsColor` and `PacingZone.semanticColor` return
+these pastels (chill→green, onTrack→blue, warning→amber, hot→coral).
+
+### Menu bar rendering — option B (adaptive text + colored dot)
+
+The status-item text must stay legible over any wallpaper. Rendering:
+- **Text** uses the menu bar's effective appearance: near-white (`#F4F4F6`) on a
+  dark menu bar, near-black (`#1C1C1E`) on a light one. `MenuBarRenderer.RenderData`
+  gains `menuBarIsDark: Bool`; `StatusBarController` reads
+  `statusItem.button.effectiveAppearance` and re-renders on appearance change.
+- **Risk color** rides a small filled dot before each metric (pastel on a dark
+  bar, the deepened variant on a light bar). `colorMode = .risk` shows dots;
+  `colorMode = .monochrome` shows none (adaptive text only).
+
+Everything below still holds (SF Symbols hierarchical, `.monospacedDigit()` on all
+numerics, 14pt inset, `Divider()` separation in the popover, `RoundedRectangle`
+cards) — recolored to the palette above.
+
+### Typography — minimal & modern (owner design review)
+
+**Drop `.rounded` entirely** (it reads playful, not minimal). Use the **default
+system font (SF Pro)** everywhere, including the app name and hero numbers.
+Restrained weights: hero/big numbers `.medium` (never `.bold`/`.heavy`/`.black`),
+section labels `.regular`/`.medium`, secondary `.regular`. `.monospacedDigit()`
+stays on every numeric. Clean and quiet — no chunky or decorative type.
+
+### Motion — minimal & restrained (owner design review)
+
+The current app reads as "too futuristic." The pastel look calls for quiet,
+modern motion. **Remove:** the blur-burst space transition, `matchedGeometry`
+pill glides, card-flip animations, glow/pulse-heavy effects, animated gradients,
+hover scale-ups, and any bouncy/overshooting springs. **Use instead:** simple
+crossfades or no transition on view switches; gentle default easing
+(`.easeInOut`, short ~0.15–0.2s) for state changes; SF Symbol effects only where
+they carry meaning (e.g. the refresh glyph pulse while loading). No motion for
+motion's sake. When in doubt, prefer the platform default or nothing. This binds
+every remaining UI task (sidebar nav, monitoring/history tiles, settings,
+onboarding).
 
 - **Color by role, never by theme.** Risk drives color: ok = `.green`, warning =
   `.orange`, critical = `.red`, active/info = `.blue`. Text hierarchy `.primary` /
@@ -128,9 +185,18 @@ dark/light.
     `symbolEffect(.pulse)` during refresh.
   - All numbers `.monospacedDigit()` to prevent menu bar width jitter; fixed-
     width rendering option to stop neighbor icons shifting.
-- **Popover (single layout, ~340pt wide).** Vertical stack with dividers:
+- **Popover (single layout, ~340pt wide).** One layout (the old 3-variant +
+  drag-editor system is gone). **No arrow** (owner review): presented as a
+  borderless panel anchored under the status item (RaiDrive-style), backed by an
+  `NSVisualEffectView` for native translucency — not an `NSPopover` with its
+  up-arrow. **Configurable (owner review, reversing the earlier
+  zero-config call):** a `PopoverConfig` — independent of the menu bar's
+  `MenuBarConfig` — lets the user choose/reorder which metric rows appear and
+  toggle sections (pacing chips, spend, timestamp), edited in a Settings → Popover
+  section with a live preview. A metric renders only if visible in the config AND
+  present in the API response. Vertical stack with dividers:
   1. Header: 32pt tinted status disc (pulsing hierarchical symbol) + app name in
-     `.rounded` + plan badge + account email `.caption .tertiary`.
+     default SF Pro + plan badge + account email `.caption .tertiary`.
   2. Vendor outage banner (orange-tint inline pattern) when active.
   3. Metric rows — one per bucket present in the response (session 5h, weekly
      all-model, per-model weekly): label, thin native gauge, `%` monospaced,
@@ -197,7 +263,7 @@ Fix:
   `claude.ai` authorize page, token exchange endpoint). Login: browser opens →
   user authorizes → local loopback callback (127.0.0.1, random port; manual
   code-paste fallback) → access + refresh tokens stored in an **app-owned**
-  Keychain item (service `com.tokeneater.oauth`). Because the app creates the
+  Keychain item (service `com.raiusage.oauth`). Because the app creates the
   item, reads are ACL-prompt-free regardless of signing identity.
 - **Autonomous refresh.** `TokenProvider` refreshes proactively before
   `expiresAt` and reactively on 401 (refresh → retry once). No dependency on
@@ -211,8 +277,15 @@ Fix:
 - Tokens live only in the Keychain and memory — never on disk; `shared.json`
   continues to hold usage numbers only.
 - **Risk:** the OAuth client id/endpoints are unpublished internals and could
-  change; the borrowed-token fallback stays as the safety net. Validated by a
-  real login during implementation.
+  change; the borrowed-token fallback stays as the safety net.
+- **Status — validated (live-working).** The OAuth constants (client id,
+  authorize page, token/refresh endpoints, `anthropic-beta` header) are verified
+  against Claude Code 2.1.186, and the borrow-and-self-refresh fallback is the
+  live path in production: the app reads each borrowed source's `expiresAt` and
+  skips expired ones, falling through to the live Claude Desktop token and
+  showing real usage. The own-login token exchange shares the same verified
+  constants; its end-to-end live test was only ever blocked by Anthropic's
+  transient 429 throttling on the exchange endpoint, not by any constant.
 
 ## 6. Project & CI changes
 

@@ -63,8 +63,7 @@ struct NotificationSettingsStoreTests {
         clean(); defer { clean() }
         let parent = SettingsStore(
             notificationService: MockNotificationService(),
-            tokenProvider: MockTokenProvider(),
-            sharedFileService: MockSharedFileService()
+            tokenProvider: MockTokenProvider()
         )
         var fired = false
         let c = parent.objectWillChange.sink { fired = true }
@@ -78,8 +77,7 @@ struct NotificationSettingsStoreTests {
         clean(); defer { clean() }
         let parent = SettingsStore(
             notificationService: MockNotificationService(),
-            tokenProvider: MockTokenProvider(),
-            sharedFileService: MockSharedFileService()
+            tokenProvider: MockTokenProvider()
         )
         parent.notifPacingWarning = true
         #expect(parent.notification.pacingWarning == true)

@@ -2,148 +2,713 @@ import Testing
 import Foundation
 import AppKit
 
-@Suite("MenuBarRenderer.smartResetNSColor")
-struct MenuBarRendererTests {
+/// Regression coverage for `MenuBarRenderer.gaugeColor`'s smart-mode path,
+/// expressed against validated (u, e) scenarios from `SmartColorTests` so the
+/// expected zone is grounded in the risk model rather than hand-picked.
+/// `gaugeColor` takes its inputs directly (no `RenderData`), so this suite is
+/// untouched by the menu-bar engine rewrite.
+@Suite("MenuBarRenderer.gaugeColor smart-mode regression")
+struct MenuBarRendererSmartRegressionTests {
 
-    private let theme = ThemeColors.default
     private let thresholds = UsageThresholds.default // warning: 60, critical: 85
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private let window: TimeInterval = 5 * 3600 // 300 min
 
     private func reset(_ minutesAway: Double) -> Date {
         now.addingTimeInterval(minutesAway * 60)
     }
 
-    private func color(_ utilization: Double, minutesRemaining: Double) -> NSColor {
-        MenuBarRenderer.smartResetNSColor(
-            utilization: utilization,
+    private func color(_ utilization: Int, minutesRemaining: Double) -> NSColor {
+        MenuBarRenderer.gaugeColor(
+            pct: utilization,
             resetDate: reset(minutesRemaining),
-            themeColors: theme,
+            windowDuration: window,
+            monochrome: false,
+            smartEnabled: true,
             thresholds: thresholds,
+            pacingMargin: 10,
+            smartColorProfile: .balanced,
             now: now
         )
     }
 
-    @Test("limit reached with short remaining stays critical")
-    func limitReachedShortRemainingCritical() {
-        // Bug repro: utilization 100%, 20 min left -> risk score = 20 which
-        // used to map to the normal (green) gauge color. With the fix, any
-        // utilization at or above the critical threshold must return the
-        // critical color regardless of remaining time.
-        let observed = color(100, minutesRemaining: 20)
-        let expected = theme.gaugeNSColor(for: 100, thresholds: thresholds)
-        #expect(observed == expected)
+    @Test("100% utilization is always critical, regardless of time remaining")
+    func hardCapAlwaysCritical() {
+        #expect(color(100, minutesRemaining: 20) == RiskZone.critical.nsColor)
+        #expect(color(100, minutesRemaining: 240) == RiskZone.critical.nsColor)
     }
 
-    @Test("limit reached with long remaining stays critical")
-    func limitReachedLongRemainingCritical() {
-        let observed = color(95, minutesRemaining: 240)
-        let expected = theme.gaugeNSColor(for: 95, thresholds: thresholds)
-        #expect(observed == expected)
+    @Test("95% with 5 min remaining is critical (matches SmartColorTests u=0.95 e=0.983 -> hot)")
+    func criticalLowTime() {
+        #expect(color(95, minutesRemaining: 5) == RiskZone.critical.nsColor)
     }
 
-    @Test("low utilization near reset stays normal")
-    func lowUtilizationShortRemainingNormal() {
-        // 30% with 15 min left: risk = 4.5 -> normal color.
-        let observed = color(30, minutesRemaining: 15)
-        let expected = theme.gaugeNSColor(for: 10, thresholds: thresholds)
-        #expect(observed == expected)
+    @Test("low utilization near reset stays ok")
+    func lowUtilizationStaysOk() {
+        #expect(color(30, minutesRemaining: 15) == RiskZone.ok.nsColor)
     }
 
-    @Test("high pre-critical utilization with ample remaining escalates to critical")
-    func projectedRiskEscalatesToCritical() {
-        // 80% utilization (below critical 85) with 3h left: risk = 144 -> critical band.
-        let observed = color(80, minutesRemaining: 180)
-        let expected = theme.gaugeNSColor(for: 100, thresholds: thresholds)
-        #expect(observed == expected)
+    @Test("80% used at 50% elapsed is critical (matches SmartColorTests u=0.80 e=0.50 -> hot)")
+    func highUtilizationAheadOfPaceEscalates() {
+        // e=0.50 on a 300min window -> 150min remaining.
+        #expect(color(80, minutesRemaining: 150) == RiskZone.critical.nsColor)
     }
 
-    @Test("pre-critical utilization with moderate remaining lands in warning band (v3)")
-    func projectedRiskWarning() {
-        // v3 model: smart calibration is now profile-driven (Balanced
-        // bounds 0.50/1.00 instead of the user's 0.60/0.85 thresholds),
-        // and the absolute signal is dampened by projection health
-        // (smoothstep(0.7, 1.0, u/e)). At u=0.80 / 90min remaining on
-        // 5h: u/e = 0.80/0.90 = 0.889, dampened to ~0.69, multiplied
-        // by absolute_raw smoothstep(0.50, 1.00, 0.80) ≈ 0.65 -> final
-        // risk ~0.45, which interpolates ~60% of the way from green to
-        // orange. So the color is a vivid orange, not red.
-        //
-        // The pre-v3 expectation of "stays critical at 80% / 90min" was
-        // a v2-era fix for v1's reset-imminent override; v3's projection-
-        // health damping makes 80% with calm pacing legitimately less
-        // alarming because the user is on track to finish ~89% of limit.
-        let observed = color(80, minutesRemaining: 90)
-        // The 98%/30min hard flag is preserved separately; here we just
-        // assert the color sits in the green-to-orange interpolation
-        // region rather than matching threshold-mode red.
-        let red = theme.gaugeNSColor(for: 95, thresholds: thresholds)
-        #expect(observed != red, "80% / 90min should no longer match the threshold-mode red color")
+    @Test("72% with calm pacing stays ok (matches SmartColorTests u=0.72 e=0.84 -> chill)")
+    func highAbsoluteCalmPacingStaysOk() {
+        // e=0.84 on a 300min window -> 48min remaining.
+        #expect(color(72, minutesRemaining: 48) == RiskZone.ok.nsColor)
+    }
+}
+
+/// Covers the windowless-metric colouring rule that keeps Extra Credits in
+/// agreement across the menu bar, popover, and dashboard: Smart Color
+/// is time-aware, so a metric with no reset window must use the static
+/// threshold ladder instead of the profile-based absolute-risk colour.
+/// `gaugeColor` is untouched by the engine rewrite, so this suite is too.
+@Suite("MenuBarRenderer.gaugeColor (windowless fallback)")
+struct MenuBarGaugeColorTests {
+
+    private let thresholds = UsageThresholds.default // warning 60, critical 85
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test("windowless metric uses the threshold ladder even when Smart Color is on")
+    func windowlessUsesThresholds() {
+        let observed = MenuBarRenderer.gaugeColor(
+            pct: 67, resetDate: nil, windowDuration: 0,
+            monochrome: false, smartEnabled: true,
+            thresholds: thresholds,
+            pacingMargin: 10, smartColorProfile: .balanced, now: now
+        )
+        #expect(observed == RiskZone.forPercent(67, thresholds: thresholds).nsColor)
+        let risk = SmartColor.risk(
+            utilization: 67, resetDate: nil, windowDuration: 0,
+            pacingMargin: 10, now: now, profile: .balanced
+        )
+        let smartWindowless = SmartColor.riskZone(forRisk: risk, params: SmartColorProfile.balanced.parameters).nsColor
+        #expect(observed != smartWindowless)
+    }
+
+    @Test("windowed metric still uses Smart Color when enabled")
+    func windowedUsesSmart() {
+        let reset = now.addingTimeInterval(180 * 60) // 3h left on a 5h window
+        let observed = MenuBarRenderer.gaugeColor(
+            pct: 80, resetDate: reset, windowDuration: 5 * 3600,
+            monochrome: false, smartEnabled: true,
+            thresholds: thresholds,
+            pacingMargin: 10, smartColorProfile: .balanced, now: now
+        )
+        let risk = SmartColor.risk(
+            utilization: 80, resetDate: reset, windowDuration: 5 * 3600,
+            pacingMargin: 10, now: now, profile: .balanced
+        )
+        let expectedSmart = SmartColor.riskZone(forRisk: risk, params: SmartColorProfile.balanced.parameters).nsColor
+        #expect(observed == expectedSmart)
+    }
+
+    @Test("smart disabled always uses the threshold ladder")
+    func smartDisabledUsesThresholds() {
+        let reset = now.addingTimeInterval(180 * 60)
+        let observed = MenuBarRenderer.gaugeColor(
+            pct: 80, resetDate: reset, windowDuration: 5 * 3600,
+            monochrome: false, smartEnabled: false,
+            thresholds: thresholds,
+            pacingMargin: 10, smartColorProfile: .balanced, now: now
+        )
+        #expect(observed == RiskZone.forPercent(80, thresholds: thresholds).nsColor)
+    }
+
+    @Test("monochrome wins over everything")
+    func monochromeWins() {
+        let observed = MenuBarRenderer.gaugeColor(
+            pct: 67, resetDate: nil, windowDuration: 0,
+            monochrome: true, smartEnabled: true,
+            thresholds: thresholds,
+            pacingMargin: 10, smartColorProfile: .balanced, now: now
+        )
+        #expect(observed == NSColor.labelColor)
+    }
+}
+
+/// Shared factory for `MenuBarRenderer.RenderData` in the buildLine/imaging
+/// suites below - a fully-populated, deterministic baseline (threshold mode,
+/// not smart) with every override a test needs exposed as a parameter.
+private func makeRenderData(
+    pinned: [PinnedMetricConfig] = [.init(id: .fiveHour, prefix: .none), .init(id: .sevenDay, prefix: .none)],
+    displayMode: MenuBarDisplayMode = .all,
+    rotateSeconds: Int = 5,
+    colorMode: MenuBarColorMode = .risk,
+    showIcon: Bool = true,
+    separator: String = "|",
+    fixedWidth: Bool = false,
+    rotateIndex: Int = 0,
+    hasConfig: Bool = true,
+    hasError: Bool = false,
+    smartColorEnabled: Bool = false,
+    fiveHourPct: Int = 30,
+    sevenDayPct: Int = 30,
+    sonnetPct: Int = 30,
+    designPct: Int = 30,
+    fablePct: Int = 30,
+    extraCreditsPct: Int = 30,
+    hasFiveHourBucket: Bool = true,
+    hasWeeklyPacing: Bool = true,
+    hasSessionPacing: Bool = true,
+    hasDesign: Bool = true,
+    hasFable: Bool = true,
+    hasExtraCredits: Bool = true,
+    resetDisplayFormat: ResetDisplayFormat = .relative,
+    fiveHourReset: String = "1h39",
+    fiveHourResetAbsolute: String = "20:30",
+    sessionPacingDelta: Int = 0,
+    sessionPacingZone: PacingZone = .onTrack,
+    weeklyPacingDelta: Int = 0,
+    weeklyPacingZone: PacingZone = .onTrack,
+    extraCreditsUsedMinorUnits: Double = 4200,
+    extraCreditsLimitMinorUnits: Double = 500_000,
+    extraCreditsCurrency: String = "USD",
+    outageActive: Bool = false,
+    outageHealth: VendorHealth = .healthy,
+    nextPollSeconds: Int? = nil,
+    menuBarIsDark: Bool = true
+) -> MenuBarRenderer.RenderData {
+    MenuBarRenderer.RenderData(
+        menuBarConfig: MenuBarConfig(
+            pinned: pinned,
+            displayMode: displayMode,
+            rotateSeconds: rotateSeconds,
+            colorMode: colorMode,
+            showIcon: showIcon,
+            separator: separator,
+            fixedWidth: fixedWidth
+        ),
+        rotateIndex: rotateIndex,
+        hasConfig: hasConfig,
+        hasError: hasError,
+        thresholds: .default,
+        smartColorEnabled: smartColorEnabled,
+        smartColorProfile: .balanced,
+        pacingMargin: 10,
+        fiveHourPct: fiveHourPct,
+        sevenDayPct: sevenDayPct,
+        sonnetPct: sonnetPct,
+        designPct: designPct,
+        fablePct: fablePct,
+        extraCreditsPct: extraCreditsPct,
+        hasFiveHourBucket: hasFiveHourBucket,
+        hasWeeklyPacing: hasWeeklyPacing,
+        hasSessionPacing: hasSessionPacing,
+        hasDesign: hasDesign,
+        hasFable: hasFable,
+        hasExtraCredits: hasExtraCredits,
+        fiveHourResetDate: nil,
+        sevenDayResetDate: nil,
+        sonnetResetDate: nil,
+        designResetDate: nil,
+        fableResetDate: nil,
+        resetDisplayFormat: resetDisplayFormat,
+        fiveHourReset: fiveHourReset,
+        sevenDayReset: "3d 14h",
+        sonnetReset: "3d 14h",
+        designReset: "3d 14h",
+        fableReset: "3d 14h",
+        fiveHourResetAbsolute: fiveHourResetAbsolute,
+        sevenDayResetAbsolute: "Thu 19:00",
+        sonnetResetAbsolute: "Thu 19:00",
+        designResetAbsolute: "Thu 19:00",
+        fableResetAbsolute: "Thu 19:00",
+        sessionPacingDelta: sessionPacingDelta,
+        sessionPacingZone: sessionPacingZone,
+        weeklyPacingDelta: weeklyPacingDelta,
+        weeklyPacingZone: weeklyPacingZone,
+        sessionPacingDisplayMode: .dotDelta,
+        weeklyPacingDisplayMode: .dotDelta,
+        extraCreditsUsedMinorUnits: extraCreditsUsedMinorUnits,
+        extraCreditsLimitMinorUnits: extraCreditsLimitMinorUnits,
+        extraCreditsCurrency: extraCreditsCurrency,
+        outageActive: outageActive,
+        outageHealth: outageHealth,
+        nextPollSeconds: nextPollSeconds,
+        menuBarIsDark: menuBarIsDark
+    )
+}
+
+@Suite("MenuBarRenderer.buildLine")
+struct MenuBarBuildLineTests {
+
+    // These ordering/separator/selection tests are about pin logic, not the
+    // risk dot, so they force `.monochrome` to keep `line.string` a plain
+    // "label value" string - the dot's own presence/absence is covered by
+    // the dedicated dot-glyph tests below.
+
+    @Test("all mode renders every visible pin in pinned order, separator-joined")
+    func allModeOrderAndSeparator() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .all,
+            colorMode: .monochrome,
+            separator: "|",
+            fiveHourPct: 12,
+            sevenDayPct: 77
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        #expect(line.string == "12% | 77%")
+    }
+
+    @Test("all mode respects a custom separator")
+    func allModeCustomSeparator() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .all,
+            colorMode: .monochrome,
+            separator: "\u{2022}",
+            fiveHourPct: 5,
+            sevenDayPct: 6
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        #expect(line.string == "5% \u{2022} 6%")
+    }
+
+    @Test("highestRisk picks the pin whose zone is riskiest")
+    func highestRiskPicksMaxZone() {
+        // Threshold mode (smartColorEnabled: false): warning 60, critical 85.
+        // fiveHour=30 -> ok, sevenDay=90 -> critical. sevenDay must win.
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .highestRisk,
+            colorMode: .monochrome,
+            fiveHourPct: 30,
+            sevenDayPct: 90
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        #expect(line.string == "90%")
+    }
+
+    @Test("highestRisk ties keep pinned order (first pin wins)")
+    func highestRiskTiesKeepPinnedOrder() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .highestRisk,
+            colorMode: .monochrome,
+            fiveHourPct: 90,
+            sevenDayPct: 90
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        // Both are critical (90% >= 85 threshold); sevenDay is first in `pinned`.
+        #expect(line.string == "90%")
+        // Disambiguate which metric actually rendered via distinct percentages.
+        let reordered = makeRenderData(
+            pinned: [
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .highestRisk,
+            colorMode: .monochrome,
+            fiveHourPct: 99,
+            sevenDayPct: 86
+        )
+        // Both still critical (>= 85), tie keeps pinned order -> sevenDay (86%), not fiveHour (99%).
+        #expect(MenuBarRenderer.buildLine(data: reordered).string == "86%")
+    }
+
+    @Test("rotate wraps the index by the visible pin count")
+    func rotateWrapsByIndex() {
+        let pins: [PinnedMetricConfig] = [
+            .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+            .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            .init(id: .sonnet, prefix: .none, value: .percentUsed),
+        ]
+        let values = [0: "11%", 1: "22%", 2: "33%", 3: "11%", 4: "22%"]
+        for (index, expected) in values {
+            let data = makeRenderData(
+                pinned: pins,
+                displayMode: .rotate,
+                colorMode: .monochrome,
+                rotateIndex: index,
+                fiveHourPct: 11, sevenDayPct: 22, sonnetPct: 33
+            )
+            #expect(MenuBarRenderer.buildLine(data: data).string == expected, "index \(index)")
+        }
+    }
+
+    @Test("dollars value style renders only for extraCredits")
+    func dollarsOnlyForExtraCredits() {
+        let ecData = makeRenderData(
+            pinned: [.init(id: .extraCredits, prefix: .none, value: .dollars)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            extraCreditsUsedMinorUnits: 4200,
+            extraCreditsCurrency: "USD"
+        )
+        let ecLine = MenuBarRenderer.buildLine(data: ecData).string
+        #expect(ecLine.hasPrefix("$"))
+        #expect(!ecLine.contains("%"))
+
+        // A non-extraCredits pin with `.dollars` set (never offered by the UI,
+        // but decodable) falls back to a plain percentage instead.
+        let fiveHourData = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .dollars)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 42
+        )
+        #expect(MenuBarRenderer.buildLine(data: fiveHourData).string == "42%")
+    }
+
+    @Test("percentRemaining is 100 minus the used percentage")
+    func percentRemaining() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentRemaining)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 30
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "70%")
+    }
+
+    @Test("percentRemaining clamps at 0 when used exceeds 100")
+    func percentRemainingClamps() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentRemaining)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 140
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "0%")
+    }
+
+    @Test("monochrome ignores risk zones - no zone color and no dot renders, text uses the adaptive color")
+    func monochromeIgnoresZones() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 10,   // would be ok (green) in risk mode
+            sevenDayPct: 95    // would be critical (red) in risk mode
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        var colors = Set<NSColor>()
+        line.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+            if let color = value as? NSColor { colors.insert(color) }
+        }
+        #expect(!colors.contains(RiskZone.ok.nsColor))
+        #expect(!colors.contains(RiskZone.critical.nsColor))
+        // Every span (value, separator) resolves to the single adaptive
+        // text color; `menuBarIsDark` defaults to true in this factory.
+        #expect(colors == [DS.Pastel.NS.textOnDark])
+        // No risk dot glyph in monochrome mode.
+        #expect(!line.string.contains("\u{25CF}"))
+    }
+
+    @Test("risk color mode paints a zone-colored dot per metric; value text itself stays adaptive")
+    func riskModeUsesZoneColors() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .all,
+            colorMode: .risk,
+            fiveHourPct: 10,   // ok
+            sevenDayPct: 95    // critical
+        )
+        let line = MenuBarRenderer.buildLine(data: data)
+        var colors = Set<NSColor>()
+        line.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+            if let color = value as? NSColor { colors.insert(color) }
+        }
+        #expect(colors.contains(RiskZone.ok.dotColor(menuBarIsDark: true)))
+        #expect(colors.contains(RiskZone.critical.dotColor(menuBarIsDark: true)))
+        // The percentage text, separator, and any label all resolve to the
+        // single adaptive text color - only the dot varies by zone. Exactly
+        // 3 distinct colors total: the 2 zone dots + the 1 adaptive text color.
+        #expect(colors.contains(DS.Pastel.NS.textOnDark))
+        #expect(colors.count == 3)
+    }
+
+    @Test(".risk color mode prepends a small risk dot before each metric")
+    func riskModeEmitsDotGlyph() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            colorMode: .risk,
+            fiveHourPct: 42
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string.contains("\u{25CF}"))
+    }
+
+    @Test(".monochrome color mode emits no risk dot")
+    func monochromeEmitsNoDotGlyph() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 42
+        )
+        #expect(!MenuBarRenderer.buildLine(data: data).string.contains("\u{25CF}"))
+    }
+
+    @Test("text color is adaptive: near-white on a dark menu bar, near-black on a light one")
+    func adaptiveTextColorFollowsMenuBarAppearance() {
+        func colors(_ line: NSAttributedString) -> Set<NSColor> {
+            var result = Set<NSColor>()
+            line.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+                if let color = value as? NSColor { result.insert(color) }
+            }
+            return result
+        }
+        let darkData = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            colorMode: .monochrome,
+            fiveHourPct: 42,
+            menuBarIsDark: true
+        )
+        let lightData = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            colorMode: .monochrome,
+            fiveHourPct: 42,
+            menuBarIsDark: false
+        )
+        #expect(colors(MenuBarRenderer.buildLine(data: darkData)) == [DS.Pastel.NS.textOnDark])
+        #expect(colors(MenuBarRenderer.buildLine(data: lightData)) == [DS.Pastel.NS.textOnLight])
+    }
+
+    @Test("risk dot uses the deepened pastel variant on a light menu bar")
+    func riskDotUsesDeepenedVariantOnLightBar() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            colorMode: .risk,
+            fiveHourPct: 95, // critical
+            menuBarIsDark: false
+        )
+        var colors = Set<NSColor>()
+        let line = MenuBarRenderer.buildLine(data: data)
+        line.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+            if let color = value as? NSColor { colors.insert(color) }
+        }
+        #expect(colors.contains(RiskZone.critical.dotColor(menuBarIsDark: false)))
+        #expect(!colors.contains(RiskZone.critical.dotColor(menuBarIsDark: true)))
+    }
+
+    @Test("no visible pins renders an empty line")
+    func emptyWhenNothingVisible() {
+        let data = makeRenderData(
+            pinned: [.init(id: .design, prefix: .none)],
+            hasDesign: false
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).length == 0)
+    }
+
+    @Test("same countdown pin renders three distinct strings across the three formats")
+    func countdownHonorsResetDisplayFormat() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        func line(_ format: ResetDisplayFormat) -> String {
+            MenuBarRenderer.buildLine(data: makeRenderData(
+                pinned: [pin],
+                displayMode: .all,
+                colorMode: .monochrome,
+                fiveHourPct: 30,
+                resetDisplayFormat: format,
+                fiveHourReset: "1h39",
+                fiveHourResetAbsolute: "20:30"
+            )).string
+        }
+        #expect(line(.relative) == "30% 1h39")
+        #expect(line(.absolute) == "30% 20:30")
+        #expect(line(.both) == "30% 1h39 - 20:30")
+    }
+
+    @Test("countdown falls back to the available half when one side is empty in .both")
+    func countdownBothFallsBackWhenHalfEmpty() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        let data = makeRenderData(
+            pinned: [pin],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fiveHourPct: 30,
+            resetDisplayFormat: .both,
+            fiveHourReset: "1h39",
+            fiveHourResetAbsolute: ""
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "30% 1h39")
+    }
+
+    @Test("sample preview data renders every pinnable metric when all are pinned")
+    func samplePreviewRendersEveryPin() {
+        // The settings live preview is sample-driven so pins never vanish on a
+        // machine with no usage data. Every availability flag in the sample
+        // must be true: with all pinnable metrics pinned, the all-mode line
+        // has to contain every pin (separator count == pins - 1).
+        let pins = MetricID.menuBarPinnable.map { PinnedMetricConfig(id: $0, prefix: .none) }
+        let config = MenuBarConfig(pinned: pins, displayMode: .all, separator: "|")
+        let line = MenuBarRenderer.buildLine(data: .sample(config: config))
+        let separators = line.string.filter { $0 == "|" }.count
+        #expect(separators == pins.count - 1)
+    }
+}
+
+@Suite("MenuBarRenderer.fixedWidthMeasurement")
+struct MenuBarFixedWidthTests {
+
+    @Test("adding a pin never shrinks the worst-case width (all mode)")
+    func monotonicInAllMode() {
+        let onePin = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            fixedWidth: true
+        )
+        let twoPins = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .all,
+            fixedWidth: true
+        )
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: twoPins) >= MenuBarRenderer.fixedWidthMeasurement(data: onePin))
+    }
+
+    @Test("adding a pin never shrinks the worst-case width (rotate mode)")
+    func monotonicInRotateMode() {
+        let onePin = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .rotate,
+            fixedWidth: true
+        )
+        let twoPins = makeRenderData(
+            pinned: [
+                .init(id: .fiveHour, prefix: .none, value: .percentUsed),
+                .init(id: .sevenDay, prefix: .none, value: .percentUsed),
+            ],
+            displayMode: .rotate,
+            fixedWidth: true
+        )
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: twoPins) >= MenuBarRenderer.fixedWidthMeasurement(data: onePin))
+    }
+
+    @Test("fixed-width measurement in .risk mode is wider than .monochrome - accounts for the dot")
+    func fixedWidthAccountsForDot() {
+        let riskData = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            colorMode: .risk,
+            fixedWidth: true
+        )
+        let monoData = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            colorMode: .monochrome,
+            fixedWidth: true
+        )
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: riskData) > MenuBarRenderer.fixedWidthMeasurement(data: monoData))
+    }
+
+    @Test("worst-case width is at least as wide as the natural rendered line")
+    func worstCaseAtLeastNatural() {
+        let data = makeRenderData(
+            pinned: [.init(id: .fiveHour, prefix: .none, value: .percentUsed)],
+            displayMode: .all,
+            fixedWidth: true,
+            fiveHourPct: 4 // narrow "4%" - worst case "100%" must be >= this
+        )
+        let naturalWidth = MenuBarRenderer.buildLine(data: data).size().width
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: data) >= naturalWidth)
+    }
+
+    @Test("dollars pin: measurement is identical across live values and covers each rendered width")
+    func dollarsWorstCaseStableAcrossLiveValues() {
+        let pin = PinnedMetricConfig(id: .extraCredits, prefix: .none, value: .dollars)
+        // Whole-dollar AND cent-bearing amounts within the ceiling (limit
+        // $5,000 / "$8,888.88" floor). Cents matter: CurrencyFormatter keeps
+        // 2 fraction digits for non-whole balances, so "$999.99" renders
+        // wider than a decimals-free "$8,888" would.
+        let liveMinorUnits: [Double] = [
+            0, 4200, 130_000, 420_000,   // $0, $42, $1,300, $4,200
+            130_055, 99_999,             // $1,300.55, $999.99
+        ]
+        var measurements = Set<CGFloat>()
+        for used in liveMinorUnits {
+            let data = makeRenderData(
+                pinned: [pin],
+                displayMode: .all,
+                fixedWidth: true,
+                extraCreditsUsedMinorUnits: used,
+                extraCreditsLimitMinorUnits: 500_000
+            )
+            let measured = MenuBarRenderer.fixedWidthMeasurement(data: data)
+            #expect(measured >= MenuBarRenderer.buildLine(data: data).size().width, "used \(used)")
+            measurements.insert(measured)
+        }
+        #expect(measurements.count == 1)
+    }
+
+    @Test("dollars pin: a limit wider than the $8,888 floor raises the measurement")
+    func dollarsWorstCaseUsesLimitWhenWider() {
+        func measurement(limitMinorUnits: Double) -> CGFloat {
+            MenuBarRenderer.fixedWidthMeasurement(data: makeRenderData(
+                pinned: [.init(id: .extraCredits, prefix: .none, value: .dollars)],
+                displayMode: .all,
+                fixedWidth: true,
+                extraCreditsLimitMinorUnits: limitMinorUnits
+            ))
+        }
+        // $500 limit -> the "$8,888" floor governs; $150,000 limit -> "$150,000" governs.
+        #expect(measurement(limitMinorUnits: 15_000_000) > measurement(limitMinorUnits: 50_000))
+    }
+
+    @Test("countdown pin: measurement is identical across live countdown strings, per format")
+    func countdownWorstCaseStableAcrossLiveValues() {
+        let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
+        let liveCountdowns: [(relative: String, absolute: String)] = [
+            ("1h05", "20:30"), ("25min", "08:00"), ("4h44", "23:59"), ("now", "09:15"),
+        ]
+        for format in ResetDisplayFormat.allCases {
+            var measurements = Set<CGFloat>()
+            for live in liveCountdowns {
+                let data = makeRenderData(
+                    pinned: [pin],
+                    displayMode: .all,
+                    fixedWidth: true,
+                    fiveHourPct: 42,
+                    resetDisplayFormat: format,
+                    fiveHourReset: live.relative,
+                    fiveHourResetAbsolute: live.absolute
+                )
+                let measured = MenuBarRenderer.fixedWidthMeasurement(data: data)
+                #expect(
+                    measured >= MenuBarRenderer.buildLine(data: data).size().width,
+                    "format \(format.rawValue), countdown \(live.relative)/\(live.absolute)"
+                )
+                measurements.insert(measured)
+            }
+            #expect(measurements.count == 1, "format \(format.rawValue)")
+        }
     }
 }
 
 @Suite("MenuBarRenderer.outageBadge")
 struct MenuBarOutageBadgeTests {
 
-    static func sampleRenderData(
-        pinnedMetrics: Set<MetricID> = [.fiveHour],
-        outageActive: Bool = false,
-        outageHealth: VendorHealth = .healthy,
-        nextPollSeconds: Int? = nil
-    ) -> MenuBarRenderer.RenderData {
-        MenuBarRenderer.RenderData(
-            pinnedMetrics: pinnedMetrics,
-            displaySonnet: false,
-            fiveHourPct: 10,
-            sevenDayPct: 5,
-            sonnetPct: 0,
-            weeklyPacingDelta: 0,
-            weeklyPacingZone: .onTrack,
-            hasWeeklyPacing: false,
-            sessionPacingDelta: 0,
-            sessionPacingZone: .onTrack,
-            hasSessionPacing: false,
-            sessionPacingDisplayMode: .dotDelta,
-            weeklyPacingDisplayMode: .dotDelta,
-            hasConfig: true,
-            hasError: false,
-            themeColors: .default,
-            thresholds: .default,
-            menuBarMonochrome: false,
-            fiveHourReset: "",
-            fiveHourResetAbsolute: "",
-            fiveHourResetDate: nil,
-            sevenDayResetDate: nil,
-            sonnetResetDate: nil,
-            designResetDate: nil,
-            hasFiveHourBucket: true,
-            resetDisplayFormat: .relative,
-            resetTextColorHex: "",
-            sessionPeriodColorHex: "",
-            smartResetColor: false,
-            smartColorProfile: .balanced,
-            pacingMargin: 10,
-            menuBarStyle: .classic,
-            pacingShape: .circle,
-            designPct: 0,
-            hasDesign: false,
-            fablePct: 0,
-            hasFable: false,
-            fableResetDate: nil,
-            outageActive: outageActive,
-            outageHealth: outageHealth,
-            nextPollSeconds: nextPollSeconds,
-            extraCreditsPct: 0,
-            hasExtraCredits: false
-        )
-    }
-
     @Test("outage badge widens the rendered image vs. no badge")
     func outageBadgeRenders() {
-        // Build two RenderData values identical except for the outage badge.
-        // Reuse however this suite already builds RenderData; only the three
-        // new fields differ.
-        let base = Self.sampleRenderData(outageActive: false)
-        let badged = Self.sampleRenderData(outageActive: true, outageHealth: .down, nextPollSeconds: 65)
+        let base = makeRenderData(outageActive: false)
+        let badged = makeRenderData(outageActive: true, outageHealth: .down, nextPollSeconds: 65)
 
         let baseImg = MenuBarRenderer.renderUncached(base)
         let badgedImg = MenuBarRenderer.renderUncached(badged)
@@ -154,13 +719,13 @@ struct MenuBarOutageBadgeTests {
 
     @Test("pinned serviceStatus with .down is non-template and wider than .healthy")
     func pinnedServiceStatusDownWiderThanHealthy() {
-        let healthy = Self.sampleRenderData(
-            pinnedMetrics: [.serviceStatus],
+        let healthy = makeRenderData(
+            pinned: [.init(id: .serviceStatus)],
             outageHealth: .healthy,
             nextPollSeconds: nil
         )
-        let down = Self.sampleRenderData(
-            pinnedMetrics: [.serviceStatus],
+        let down = makeRenderData(
+            pinned: [.init(id: .serviceStatus)],
             outageHealth: .down,
             nextPollSeconds: 125
         )
@@ -171,107 +736,13 @@ struct MenuBarOutageBadgeTests {
         #expect(downImg.isTemplate == false)
         #expect(downImg.size.width > healthyImg.size.width)
     }
-}
 
-@Suite("MenuBarRenderer.periodLabelColor")
-struct MenuBarPeriodLabelColorTests {
-
-    @Test("default (no custom hex) is the legible secondary colour, not the faint tertiary")
-    func defaultIsLegible() {
-        let resolved = MenuBarRenderer.periodLabelColor(hex: "")
-        #expect(resolved == MenuBarRenderer.defaultPeriodLabelColor)
-        // Regression guard for #196: the "5h" / "7d" label used to default to
-        // tertiary (~26%), nearly invisible on a light menu bar. It must not
-        // revert to that faint grey.
-        #expect(MenuBarRenderer.defaultPeriodLabelColor != NSColor.tertiaryLabelColor)
-    }
-
-    /// A user-picked hex wins. The resolver is mode-agnostic, so the same colour
-    /// applies in monochrome too (the #196 promise: tweakable in monochrome).
-    @Test("a valid custom hex overrides the default")
-    func customHexWins() {
-        let resolved = MenuBarRenderer.periodLabelColor(hex: "#3366FF")
-        #expect(resolved == MenuBarTextColorResolver.resolve(hex: "#3366FF", fallback: .clear))
-        #expect(resolved != MenuBarRenderer.defaultPeriodLabelColor)
-    }
-
-    @Test("empty or malformed hex falls back to the legible default")
-    func malformedHexFallsBack() {
-        #expect(MenuBarRenderer.periodLabelColor(hex: "   ") == MenuBarRenderer.defaultPeriodLabelColor)
-        #expect(MenuBarRenderer.periodLabelColor(hex: "not-a-color") == MenuBarRenderer.defaultPeriodLabelColor)
-    }
-}
-
-/// Covers the windowless-metric colouring rule that keeps Extra Credits in
-/// agreement across the menu bar, popover, dashboard and widgets: Smart Color
-/// is time-aware, so a metric with no reset window must use the static
-/// threshold ladder instead of the profile-based absolute-risk colour.
-@Suite("MenuBarRenderer.gaugeColor (windowless fallback)")
-struct MenuBarGaugeColorTests {
-
-    private let theme = ThemeColors.default
-    private let thresholds = UsageThresholds.default // warning 60, critical 85
-    private let now = Date(timeIntervalSince1970: 1_700_000_000)
-
-    @Test("windowless metric uses the threshold ladder even when Smart Color is on")
-    func windowlessUsesThresholds() {
-        // Extra Credits has no reset window (resetDate nil, windowDuration 0).
-        let observed = MenuBarRenderer.gaugeColor(
-            pct: 67, resetDate: nil, windowDuration: 0,
-            monochrome: false, smartEnabled: true,
-            themeColors: theme, thresholds: thresholds,
-            pacingMargin: 10, smartColorProfile: .balanced, now: now
-        )
-        // 67% is past the 60 warning threshold → warning colour.
-        #expect(observed == theme.gaugeNSColor(for: 67, thresholds: thresholds))
-        // Regression guard for the green-vs-orange bug: the old code routed
-        // windowless metrics through Smart Color, which reads a calmer colour
-        // at 67% because the profile bounds (≈0.50/1.00) differ from the user's
-        // 60/85 thresholds. Those two colours must NOT be equal here.
-        let smartWindowless = theme.smartGaugeNSColor(
-            utilization: 67, resetDate: nil, windowDuration: 0,
-            thresholds: thresholds, pacingMargin: 10, now: now, profile: .balanced
-        )
-        #expect(observed != smartWindowless)
-    }
-
-    @Test("windowed metric still uses Smart Color when enabled")
-    func windowedUsesSmart() {
-        let reset = now.addingTimeInterval(180 * 60) // 3h left on a 5h window
-        let observed = MenuBarRenderer.gaugeColor(
-            pct: 80, resetDate: reset, windowDuration: 5 * 3600,
-            monochrome: false, smartEnabled: true,
-            themeColors: theme, thresholds: thresholds,
-            pacingMargin: 10, smartColorProfile: .balanced, now: now
-        )
-        let expectedSmart = theme.smartGaugeNSColor(
-            utilization: 80, resetDate: reset, windowDuration: 5 * 3600,
-            thresholds: thresholds, pacingMargin: 10, now: now, profile: .balanced
-        )
-        #expect(observed == expectedSmart)
-    }
-
-    @Test("smart disabled always uses the threshold ladder")
-    func smartDisabledUsesThresholds() {
-        let reset = now.addingTimeInterval(180 * 60)
-        let observed = MenuBarRenderer.gaugeColor(
-            pct: 80, resetDate: reset, windowDuration: 5 * 3600,
-            monochrome: false, smartEnabled: false,
-            themeColors: theme, thresholds: thresholds,
-            pacingMargin: 10, smartColorProfile: .balanced, now: now
-        )
-        #expect(observed == theme.gaugeNSColor(for: 80, thresholds: thresholds))
-    }
-
-    @Test("monochrome wins over everything")
-    func monochromeWins() {
-        let observed = MenuBarRenderer.gaugeColor(
-            pct: 67, resetDate: nil, windowDuration: 0,
-            monochrome: true, smartEnabled: true,
-            themeColors: theme, thresholds: thresholds,
-            pacingMargin: 10, smartColorProfile: .balanced, now: now
-        )
-        #expect(observed == NSColor.labelColor)
+    @Test("no config or error falls back to the template logo, even with an active outage badge underneath")
+    func noConfigFallsBackToLogoBadgeOnly() {
+        let data = makeRenderData(hasConfig: false, outageActive: true, outageHealth: .down, nextPollSeconds: 30)
+        let image = MenuBarRenderer.renderUncached(data)
+        // Outage badge alone (not composited with the logo) - still non-template.
+        #expect(image.isTemplate == false)
     }
 }
 
@@ -280,60 +751,24 @@ struct MenuBarGaugeColorTests {
 @Suite("MenuBarRenderer Extra Credits gating")
 struct MenuBarExtraCreditsRenderTests {
 
-    /// Full RenderData with neutral defaults; tests override only what matters.
-    private func data(
-        pinned: Set<MetricID> = [.extraCredits],
-        hasExtraCredits: Bool = true,
-        extraCreditsPct: Int = 67,
-        style: MenuBarStyle = .classic
-    ) -> MenuBarRenderer.RenderData {
-        MenuBarRenderer.RenderData(
-            pinnedMetrics: pinned,
-            displaySonnet: false,
-            fiveHourPct: 0, sevenDayPct: 0, sonnetPct: 0,
-            weeklyPacingDelta: 0, weeklyPacingZone: .onTrack, hasWeeklyPacing: false,
-            sessionPacingDelta: 0, sessionPacingZone: .onTrack, hasSessionPacing: false,
-            sessionPacingDisplayMode: .dotDelta, weeklyPacingDisplayMode: .dotDelta,
-            hasConfig: true, hasError: false,
-            themeColors: .default, thresholds: .default,
-            menuBarMonochrome: false,
-            fiveHourReset: "", fiveHourResetAbsolute: "",
-            fiveHourResetDate: nil, sevenDayResetDate: nil, sonnetResetDate: nil, designResetDate: nil,
-            hasFiveHourBucket: false,
-            resetDisplayFormat: .relative,
-            resetTextColorHex: "", sessionPeriodColorHex: "",
-            smartResetColor: false, smartColorProfile: .balanced,
-            pacingMargin: 10,
-            menuBarStyle: style,
-            pacingShape: .circle,
-            designPct: 0, hasDesign: false,
-            fablePct: 0, hasFable: false, fableResetDate: nil,
-            outageActive: false, outageHealth: .healthy, nextPollSeconds: nil,
-            extraCreditsPct: extraCreditsPct, hasExtraCredits: hasExtraCredits
-        )
-    }
-
     @Test("EC pinned + pool enabled renders a value (non-template image)")
     func renderedWhenEnabled() {
-        let image = MenuBarRenderer.renderUncached(data(hasExtraCredits: true))
-        // The pinned-metrics path produces a non-template text image; the
-        // logo fallback is a template. So a non-template image proves EC drew.
+        let data = makeRenderData(
+            pinned: [.init(id: .extraCredits)],
+            hasExtraCredits: true
+        )
+        let image = MenuBarRenderer.renderUncached(data)
         #expect(image.isTemplate == false)
         #expect(image.size.width > 0)
     }
 
     @Test("EC pinned but pool disabled falls back to the logo (template image)")
     func logoFallbackWhenDisabled() {
-        // Only EC is pinned and it's filtered out → ordered list is empty →
-        // the renderer returns the template logo instead of a 0-width sliver.
-        let image = MenuBarRenderer.renderUncached(data(hasExtraCredits: false))
+        let data = makeRenderData(
+            pinned: [.init(id: .extraCredits)],
+            hasExtraCredits: false
+        )
+        let image = MenuBarRenderer.renderUncached(data)
         #expect(image.isTemplate == true)
-    }
-
-    @Test("EC renders in badge style too")
-    func renderedInBadgeStyle() {
-        let image = MenuBarRenderer.renderUncached(data(hasExtraCredits: true, style: .badge))
-        #expect(image.isTemplate == false)
-        #expect(image.size.width > 0)
     }
 }

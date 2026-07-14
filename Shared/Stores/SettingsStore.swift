@@ -31,50 +31,35 @@ final class SettingsStore: ObservableObject {
     var smartColorProfile: SmartColorProfile {
         get { display.smartColorProfile } set { display.smartColorProfile = newValue }
     }
-    var glowIntensity: DS.GlowIntensity {
-        get { display.glowIntensity } set { display.glowIntensity = newValue }
+    /// Threshold-mode warning percentage (used when Smart Color is off).
+    var warningThreshold: Int {
+        get { display.warningThreshold } set { display.warningThreshold = newValue }
     }
-    var menuBarStyle: MenuBarStyle {
-        get { display.menuBarStyle } set { display.menuBarStyle = newValue }
+    /// Threshold-mode critical percentage (used when Smart Color is off).
+    var criticalThreshold: Int {
+        get { display.criticalThreshold } set { display.criticalThreshold = newValue }
     }
-    var pacingShape: PacingShape {
-        get { display.pacingShape } set { display.pacingShape = newValue }
-    }
+    /// The resolved warning/critical ladder handed to `RiskZone.forPercent(_:thresholds:)`.
+    var thresholds: UsageThresholds { display.thresholds }
     var sessionPacingDisplayMode: PacingDisplayMode {
         get { display.sessionPacingDisplayMode } set { display.sessionPacingDisplayMode = newValue }
     }
     var weeklyPacingDisplayMode: PacingDisplayMode {
         get { display.weeklyPacingDisplayMode } set { display.weeklyPacingDisplayMode = newValue }
     }
-    var resetTextColorHex: String {
-        get { display.resetTextColorHex } set { display.resetTextColorHex = newValue }
+    /// Full menu-bar rendering configuration. Views should prefer
+    /// `settings.display.$menuBarConfig` for bindings; this forward is for
+    /// non-binding call sites (StatusBarController, context menu, previews).
+    var menuBarConfig: MenuBarConfig {
+        get { display.menuBarConfig } set { display.menuBarConfig = newValue }
     }
-    var sessionPeriodColorHex: String {
-        get { display.sessionPeriodColorHex } set { display.sessionPeriodColorHex = newValue }
-    }
-    var displaySonnet: Bool {
-        get { display.displaySonnet } set { display.displaySonnet = newValue }
-    }
-    var displayDesign: Bool {
-        get { display.displayDesign } set { display.displayDesign = newValue }
-    }
-    var displayFable: Bool {
-        get { display.displayFable } set { display.displayFable = newValue }
-    }
-    /// Same as `displayDesign` but for the paid Extra Credits pool. Only
-    /// surfaced in settings when `UsageStore.hasExtraCredits` is true.
-    var displayExtraCredits: Bool {
-        get { display.displayExtraCredits } set { display.displayExtraCredits = newValue }
+    /// Full popover configuration. Views should prefer
+    /// `settings.display.$popoverConfig` for bindings; this forward is for
+    /// non-binding call sites.
+    var popoverConfig: PopoverConfig {
+        get { display.popoverConfig } set { display.popoverConfig = newValue }
     }
 
-    // MARK: - Popover
-    /// Full layout configuration for the menu-bar popover. 3 variants share this
-    /// struct; switching `activeVariant` leaves the other variants untouched so
-    /// the user can keep 3 distinct preferences. Persisted as JSON under
-    /// `popoverConfig` in UserDefaults.
-    @Published var popoverConfig: PopoverConfig {
-        didSet { savePopoverConfig() }
-    }
     @Published var hasCompletedOnboarding: Bool {
         didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") }
     }
@@ -261,20 +246,17 @@ final class SettingsStore: ObservableObject {
 
     private let notificationService: NotificationServiceProtocol
     private let tokenProvider: TokenProviderProtocol
-    private let sharedFileService: SharedFileServiceProtocol
 
     init(
         notificationService: NotificationServiceProtocol = NotificationService(),
-        tokenProvider: TokenProviderProtocol = TokenProvider(),
-        sharedFileService: SharedFileServiceProtocol = SharedFileService()
+        tokenProvider: TokenProviderProtocol = TokenProvider()
     ) {
         self.notificationService = notificationService
         self.tokenProvider = tokenProvider
-        self.sharedFileService = sharedFileService
 
-        self.pacing = PacingSettingsStore(sharedFileService: sharedFileService)
+        self.pacing = PacingSettingsStore()
         self.notification = NotificationSettingsStore()
-        self.display = DisplaySettingsStore(sharedFileService: sharedFileService)
+        self.display = DisplaySettingsStore()
 
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         self.proxyEnabled = UserDefaults.standard.bool(forKey: "proxyEnabled")
@@ -306,16 +288,6 @@ final class SettingsStore: ObservableObject {
         }()
         self.statusShowMenuBarBadge = SettingsDefaults.bool(key: "statusShowMenuBarBadge", default: true)
 
-        // Popover layout config. Fresh install or decode failure -> defaults
-        // that reproduce the v4.10.x popover visually (Classic variant, all
-        // blocks visible).
-        if let data = UserDefaults.standard.data(forKey: "popoverConfig"),
-           let decoded = try? JSONDecoder().decode(PopoverConfig.self, from: data) {
-            self.popoverConfig = Self.reconcile(decoded)
-        } else {
-            self.popoverConfig = .default
-        }
-
         // The piège: a @Published child only emits the parent's objectWillChange
         // when reassigned, not when one of ITS @Published changes. Relay it so a
         // view observing `settings` re-renders on `settings.pacing.*` changes.
@@ -330,24 +302,6 @@ final class SettingsStore: ObservableObject {
         self.displayRelay = display.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
-    }
-
-    // MARK: - Popover persistence
-
-    private func savePopoverConfig() {
-        guard let data = try? JSONEncoder().encode(popoverConfig) else { return }
-        UserDefaults.standard.set(data, forKey: "popoverConfig")
-    }
-
-    /// Ensures a decoded config still satisfies the validation rules (at least
-    /// one visible block in hero+middle for non-focus variants). If anything is
-    /// off, fall back to defaults for that variant only.
-    private static func reconcile(_ config: PopoverConfig) -> PopoverConfig {
-        var fixed = config
-        if !fixed.hasVisibleContent(for: .classic) { fixed.classic = .classicDefault }
-        if !fixed.hasVisibleContent(for: .compact) { fixed.compact = .compactDefault }
-        // Focus always valid by construction (hero driven by focusHero radio).
-        return fixed
     }
 
     // MARK: - Metrics

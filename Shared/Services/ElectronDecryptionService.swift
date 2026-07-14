@@ -47,12 +47,17 @@ final class ElectronDecryptionService: ElectronDecryptionServiceProtocol, @unche
 
     private var derivedKey: Data?
 
+    /// Key-cache location override; nil means the shared app-support path. Tests
+    /// inject a temp URL so they never read or delete the user's real cached key.
+    private let keyFileOverride: URL?
+
     // MARK: - Protocol
 
     var hasEncryptionKey: Bool { derivedKey != nil }
 
-    init() {
-        derivedKey = Self.loadKeyFromFile()
+    init(keyFileURL: URL? = nil) {
+        keyFileOverride = keyFileURL
+        derivedKey = Self.loadKeyFromFile(at: keyFileURL)
     }
 
     func decrypt(_ encryptedBase64: String) throws -> Data {
@@ -81,13 +86,13 @@ final class ElectronDecryptionService: ElectronDecryptionServiceProtocol, @unche
         // Interactive Keychain read - prompts user for permission
         let password = try Self.readElectronPassword(silent: false)
         let key = Self.deriveKey(from: password)
-        Self.saveKeyToFile(key)
+        Self.saveKeyToFile(key, at: keyFileOverride)
         derivedKey = key
     }
 
     func clearCachedKey() {
         derivedKey = nil
-        Self.deleteKeyFile()
+        Self.deleteKeyFile(at: keyFileOverride)
     }
 
     func trySilentRebootstrap() -> Bool {
@@ -95,7 +100,7 @@ final class ElectronDecryptionService: ElectronDecryptionServiceProtocol, @unche
             return false
         }
         let key = Self.deriveKey(from: password)
-        Self.saveKeyToFile(key)
+        Self.saveKeyToFile(key, at: keyFileOverride)
         derivedKey = key
         return true
     }
@@ -221,7 +226,7 @@ final class ElectronDecryptionService: ElectronDecryptionServiceProtocol, @unche
         }
         return URL(fileURLWithPath: home)
             .appendingPathComponent("Library/Application Support")
-            .appendingPathComponent("com.tokeneater.shared")
+            .appendingPathComponent("com.raiusage.shared")
             .appendingPathComponent(keyFileName)
     }
 

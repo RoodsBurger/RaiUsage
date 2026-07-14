@@ -1,16 +1,14 @@
 /* Menu Bar */
-"menubar.refresh" = "Refresh";
 "menubar.settings" = "Settings";
 "menubar.quit" = "Quit";
-"menubar.hide" = "Hide from menu bar";
-"menubar.show" = "Show in menu bar";
 "menubar.updated" = "Updated %@";
 
 /* Metrics */
 "metric.session" = "5h";
 "metric.design" = "Design";
 "metric.serviceStatus" = "Service status";
-"settings.group.design" = "Claude Design";
+"metric.opus" = "Opus";
+"metric.cowork" = "Cowork";
 
 /* Extra usage (paid credits pool) */
 "dashboard.extra.title" = "Extra credits";
@@ -19,54 +17,24 @@
 "dashboard.extra.noLimit" = "Monthly limit not set";
 "metric.extraCredits" = "Extra Credits";
 "metric.sessionReset" = "Session reset countdown";
-"settings.pacing.style" = "Pacing style";
-"settings.group.session" = "Session (5h)";
-"settings.group.weekly" = "Weekly";
-"settings.group.sonnet" = "Sonnet";
 "metric.weekly" = "Weekly";
 "metric.sonnet" = "Sonnet";
-"metric.reset" = "Resets in %@";
 
 /* Settings */
-"settings.subtitle" = "Monitor your Claude usage";
-"settings.test" = "Test";
-"settings.refresh" = "Refresh";
 "settings.refresh.title" = "Refresh";
 "settings.refresh.interval" = "Polling interval";
 "settings.refresh.warning" = "Below 5 min may trigger API rate limits (429)";
-"settings.guide" = "Guide";
-"settings.testing" = "Testing...";
-"settings.clickbehavior" = "Menu Bar Click";
-"settings.clickbehavior.popover" = "Quick Glance";
-"settings.clickbehavior.dashboard" = "Dashboard";
 "settings.menubar.toggle" = "Show in menu bar";
 "settings.menubar.preview" = "Live preview";
-"settings.group.chrome" = "Chrome";
-"settings.group.chrome.hint" = "Style and shape of the bar.";
-"settings.group.pin" = "What to pin";
-"settings.group.pin.hint" = "Tap a chip to pin or unpin a metric. Active chips reveal their format options inline.";
-"settings.group.colors" = "Colors";
-"settings.group.colors.hint" = "Theme the menu bar text. Smart Color (in Themes) takes over the reset countdown when enabled.";
-"settings.metric.format" = "Format";
-"settings.theme.color.custom" = "Custom";
-"settings.theme.color.mono" = "Monochrome";
-"settings.menubar.title" = "Menu bar";
+"settings.menubar.color.mono" = "Monochrome";
 "settings.tab.connection" = "Connection";
-"settings.tab.display" = "Display";
-"settings.session.reset" = "Show reset countdown";
 "pacing.session.label" = "Session pacing";
 "pacing.weekly.label" = "Weekly pacing";
-"pacing.sonnet.label" = "Sonnet pacing";
-"settings.display.sonnet" = "Display Sonnet";
 "settings.metrics.pinned" = "Pinned metrics";
 "settings.metrics.pinned.footer" = "Choose which metrics appear in the menu bar.";
-"settings.pacing.display" = "Pacing display";
-"settings.pacing.dot" = "Dot only";
-"settings.pacing.dotdelta" = "Dot + delta (%)";
 "settings.tab.proxy" = "Proxy";
 "settings.proxy.toggle" = "Enable SOCKS5 proxy";
 "settings.proxy.footer" = "Useful behind a corporate firewall via an SSH tunnel.";
-"settings.proxy.config" = "Proxy configuration";
 "settings.proxy.host" = "Host";
 "settings.proxy.port" = "Port";
 "settings.proxy.hint" = "Example: ssh -D 1080 user@bastion then enable the proxy here.";
@@ -82,7 +50,7 @@
 "settings.redetect" = "Re-detect";
 "settings.general.title" = "General";
 "settings.launchAtLogin" = "Launch at login";
-"settings.launchAtLogin.hint" = "Open TokenEater automatically when you sign in to macOS. You can toggle this from System Settings → General → Login Items as well.";
+"settings.launchAtLogin.hint" = "Open RaiUsage automatically when you sign in to macOS. You can toggle this from System Settings → General → Login Items as well.";
 "settings.launchInBackground" = "Launch in background";
 "settings.launchInBackground.hint" = "Start in the menu bar only and skip opening the dashboard window. Open it any time from the menu bar (right-click the icon, then Open).";
 "settings.general.replayOnboarding" = "Replay onboarding";
@@ -90,40 +58,44 @@
 "settings.general.replayOnboarding.action" = "Replay";
 
 /* Connect */
-"connect.button" = "Connect";
-"connect.subtitle" = "Auto-detect Claude Code OAuth token";
 "connect.oauth.success" = "Connected via Claude Code";
-"connect.method.oauth" = "Claude Code (auto)";
 "connect.noclaudecode" = "Claude Code not detected. Install it and sign in first.";
 
-/* Guide */
-"guide.title" = "Setup Guide";
-"guide.oauth.title" = "Claude Code";
-"guide.oauth.badge" = "Recommended";
-"guide.oauth.step1" = "Install **Claude Code** (Anthropic's CLI)";
-"guide.oauth.step2" = "Open TokenEater and click **Connect**";
-"guide.oauth.step3" = "Done - token refreshes automatically";
+/* Connect - Sign in with Claude (own OAuth login) */
+"connect.signin.title" = "Sign in with Claude";
+"connect.signin.waiting" = "Waiting for browser authorization…";
+"connect.signin.manualpaste.link" = "Paste code manually instead";
+"connect.signin.manualpaste.prompt" = "Paste the code shown in the browser tab";
+"connect.signin.manualpaste.placeholder" = "code#state";
+"connect.signin.manualpaste.submit" = "Submit code";
+"connect.signin.cancel" = "Cancel";
+"connect.signin.success" = "Signed in with Claude";
+"connect.signin.signout" = "Sign out";
+"connect.secondary.title" = "Use Claude Code's session";
+"connect.secondary.subtitle" = "Borrow the token Claude Code already has signed in on this Mac";
+"connect.oauth.error.statemismatch" = "Sign-in didn't match - please try again.";
+"connect.oauth.error.malformedcallback" = "Couldn't read the authorization response. Try again or paste the code manually.";
+"connect.oauth.error.exchangefailed" = "Sign-in failed (status %d). Please try again.";
+"connect.oauth.error.refreshfailed" = "Couldn't refresh your session (status %d). Please sign in again.";
+"connect.oauth.error.cancelled" = "Sign-in was cancelled.";
+"connect.oauth.error.listenerfailed" = "Couldn't open the local sign-in listener. Try pasting the code manually.";
+"connect.oauth.error.persistencefailed" = "Couldn't save your sign-in. Check Keychain access and try again.";
 
 /* Errors - API */
 "error.notoken" = "No OAuth token found. Install Claude Code and click Connect.";
 "error.tokenexpired" = "OAuth token expired - relaunch Claude Code to refresh it";
-"error.invalidurl" = "Invalid URL";
 "error.invalidresponse" = "Invalid server response";
 "error.http" = "HTTP error %d";
 "error.ratelimited" = "Rate limited";
 "error.network" = "Network error: %@";
 "error.network.generic" = "Network error - couldn't reach the usage API. Check your connection.";
 "error.invalidresponse.short" = "Invalid response";
-"error.keychainlocked" = "Keychain locked - will retry automatically";
 "error.unsupportedplan" = "Usage data not available - Claude Pro or Team plan required";
-"error.banner.keychain" = "Keychain locked";
-"error.banner.keychain.hint" = "Will retry automatically - or open Settings to re-authorize";
 "error.banner.reauth" = "Authorization needed";
-"error.banner.reauth.hint" = "Token expired and automatic recovery failed";
 "error.banner.reauth.button" = "Re-authorize";
 "error.banner.apiunavailable" = "Usage API throttled by Anthropic";
-"error.banner.apiunavailable.hint" = "This is a rate limit on Anthropic's usage API, not your token or setup. Nothing for you to fix - TokenEater keeps retrying and refreshes as soon as the limit clears (known issue: anthropics/claude-code#31637).";
-"error.banner.apiunavailable.settings" = "This is on Anthropic's side (their usage API), not your token or setup. TokenEater retries automatically and recovers when the limit clears.";
+"error.banner.apiunavailable.hint" = "This is a rate limit on Anthropic's usage API, not your token or setup. Nothing for you to fix - RaiUsage keeps retrying and refreshes as soon as the limit clears (known issue: anthropics/claude-code#31637).";
+"error.banner.apiunavailable.settings" = "This is on Anthropic's side (their usage API), not your token or setup. RaiUsage retries automatically and recovers when the limit clears.";
 "error.banner.apiunavailable.learnmore" = "Learn more";
 "error.banner.lastupdate" = "Last successful update: %@";
 "error.banner.retry.button" = "Retry now";
@@ -165,7 +137,6 @@
 "pacing.weekly.hot.3" = "Torching the week";
 
 "pacing.label" = "Pacing";
-"pacing.reset" = "reset %@";
 
 /* Pacing Margin */
 "settings.pacing.margin" = "Pacing Sensitivity";
@@ -277,7 +248,6 @@
 "notif.body.status.claude.down" = "Anthropic reports a major outage";
 "notif.title.status.claude.restored" = "Claude is back";
 "notif.body.status.claude.restored" = "Service restored";
-"settings.notifications.title" = "Notifications";
 "settings.notifications.status" = "Status";
 "settings.notifications.on" = "Enabled";
 "settings.notifications.off" = "Disabled";
@@ -320,61 +290,27 @@
 "sidebar.serviceStatus" = "Service Status";
 "sidebar.serviceStatus.subtitle" = "Outage monitoring for Claude";
 "settings.status.master" = "Monitoring";
-"settings.status.group.polling" = "Polling";
-"settings.status.group.polling.hint" = "How often to check Claude's status. Checks speed up automatically during an outage.";
 "settings.status.interval.label" = "Check every";
-"settings.status.interval.minutes" = "%d min";
-"settings.status.group.display" = "Display";
 "settings.status.badge" = "Show outage badge in menu bar during outage";
-"settings.status.reset.confirm" = "Reset Service Status settings?";
 
 /* Relative Time */
 "relative.now" = "now";
 
-/* Theming */
-"settings.tab.theming" = "Theming";
-"settings.theme.colors" = "Color Theme";
-"settings.theme.preset" = "Preset";
-"settings.theme.custom" = "Custom";
-"settings.theme.custom.colors" = "Custom Colors";
-"settings.theme.gauge.normal" = "Gauge Normal";
-"settings.theme.gauge.warning" = "Gauge Warning";
-"settings.theme.gauge.critical" = "Gauge Critical";
-"settings.theme.pacing.chill" = "Pacing Chill";
-"settings.theme.pacing.ontrack" = "Pacing On Track";
-"settings.theme.pacing.hot" = "Pacing Hot";
-"settings.theme.thresholds" = "Usage Thresholds";
-"settings.theme.thresholds.hint" = "Used in both modes. Smart Color combines these with the pacing zone (max of the two), so a high utilization always escalates even when pacing is on track.";
-"settings.theme.warning" = "Warning";
-"settings.theme.critical" = "Critical";
-"settings.theme.menubar" = "Menu Bar";
-"settings.theme.monochrome" = "Monochrome menu bar";
-"settings.theme.preview" = "Preview";
-"settings.theme.preview.normal" = "Normal";
-"settings.theme.preview.warning" = "Warning";
-"settings.theme.preview.critical" = "Critical";
-"settings.theme.reset" = "Reset to Defaults";
-"settings.theme.reset.confirm" = "Reset all theming settings?";
-"settings.theme.reset.cancel" = "Cancel";
-"settings.theme.reset.action" = "Reset";
+/* Thresholds (Pacing section) */
+"settings.thresholds" = "Usage Thresholds";
+"settings.thresholds.hint" = "Used in both modes. Smart Color combines these with the pacing zone (max of the two), so a high utilization always escalates even when pacing is on track.";
+"settings.thresholds.warning" = "Warning";
+"settings.thresholds.critical" = "Critical";
 
 /* Shared reset (per-section) */
 "settings.section.reset" = "Reset to Defaults";
 "settings.section.reset.cancel" = "Cancel";
 "settings.section.reset.action" = "Reset";
-"settings.display.reset.confirm" = "Reset all display settings?";
-"settings.popover.reset.confirm" = "Reset all popover settings?";
 "settings.notifications.reset.confirm" = "Reset all notification toggles?";
-"theme.default" = "Default";
-"theme.monochrome" = "Monochrome";
-"theme.neon" = "Neon";
-"theme.pastel" = "Pastel";
 
 /* Dashboard */
 "dashboard.tier" = "Tier";
 "dashboard.org" = "Organization";
-"dashboard.pacing.reset.days" = "Resets in %dd %dh";
-"dashboard.pacing.reset.hours" = "Resets in %dh";
 "dashboard.hero.session.label" = "Session · 5h window";
 "dashboard.hero.resetsIn" = "Resets in";
 "pacing.zone.chill" = "Chill";
@@ -385,36 +321,14 @@
 /* Durations */
 "duration.days.hours" = "%dd %dh";
 
-/* Onboarding */
-"onboarding.mode.simple" = "Simple";
-"onboarding.mode.detailed" = "Detailed";
-
-/* Onboarding - Connection (kept: referenced by OnboardingViewModel) */
-"onboarding.connection.failed.notoken" = "Couldn't read the token. Make sure Claude Code is installed and you're signed in.";
-
-/* Settings - Onboarding reset */
-"settings.onboarding.reset" = "Run setup again";
-
-/* Reset time display + menu-bar colors */
-"settings.reset.format" = "Reset display";
+/* Reset time display */
 "settings.reset.format.relative" = "Relative (1h39)";
 "settings.reset.format.absolute" = "Absolute (20:30)";
 "settings.reset.format.both" = "Both";
-"settings.reset.color" = "Reset countdown";
-"settings.session.periodcolor" = "Period label (5h / 7d)";
-"settings.theme.menubar" = "Menu bar text";
-"settings.theme.menubar.hint" = "Customize the color of the reset countdown and period labels in the menu bar. Leave on system defaults if you want TokenEater to match your menu bar styling.";
-"settings.theme.menubar.resetColor" = "Revert to system default";
-"settings.theme.smartreset" = "Smart color for reset countdown";
-"settings.theme.smartreset.hint" = "Colour the reset countdown based on urgency (gauge colors): green when you have headroom, orange / red when usage is high relative to time remaining. Overrides the manual color above while on.";
 
-/* Smart Color (global toggle in Themes) */
+/* Smart Color (global toggle in Pacing) */
 "settings.smartcolor.title" = "Smart Color";
 "settings.smartcolor.hint" = "Color codes adapt to time-to-reset, not just absolute usage.";
-"settings.glow.title" = "Neon glow";
-"settings.glow.hint" = "Halo around gauges and metrics in the popover and monitoring view. Turn off for a cleaner, flatter look.";
-"settings.glow.mode.glow" = "Glow";
-"settings.glow.mode.flat" = "Flat";
 "settings.smartcolor.popover.title" = "How Smart Color works";
 "settings.smartcolor.popover.intro" = "Smart Color factors in the time you have left before the next reset. Same percentage gets a different color depending on how soon you'll be reset.";
 "settings.smartcolor.popover.example1.label" = "Low risk";
@@ -444,13 +358,9 @@
 "settings.smartColor.profile.vigilant.hint" = "Reads early signals as risk.";
 
 /* Sidebar */
-"sidebar.dashboard" = "Dashboard";
-"sidebar.stats" = "Stats";
 "sidebar.monitoring" = "Monitoring";
 "sidebar.history" = "History";
 "sidebar.general" = "General";
-"history.placeholder.title" = "History coming soon";
-"history.placeholder.subtitle" = "Your Claude Code session history will live here -> per-model token breakdown, daily charts, and usage patterns across your local JSONL files.";
 
 /* History view */
 "history.sessions.label" = "sessions";
@@ -466,7 +376,7 @@
 "history.hero.cacheHit" = "cache hit";
 "history.empty.dash" = "—";
 "history.empty.title" = "No sessions yet";
-"history.empty.subtitle" = "Run Claude Code to populate your history. Each session writes a JSONL file under ~/.claude/projects/ which TokenEater aggregates here.";
+"history.empty.subtitle" = "Run Claude Code to populate your history. Each session writes a JSONL file under ~/.claude/projects/ which RaiUsage aggregates here.";
 "history.empty.filter.all" = "Nothing logged in the last %@";
 "history.empty.filter.model" = "No %@ usage in the last %@";
 "history.chip.cacheHit" = "Cache hit";
@@ -484,138 +394,75 @@
 "history.tooltip.tokens" = "tokens";
 "history.tooltip.sessions" = "%lld session(s)";
 "sidebar.display" = "Menu bar";
-"sidebar.themes" = "Themes";
+"sidebar.popover" = "Popover";
 "sidebar.pacing" = "Pacing";
 "sidebar.pacing.subtitle" = "Smart Color, sensitivity, and your workweek schedule.";
-"sidebar.popover" = "Popover";
 "sidebar.notifications" = "Notifications";
 "sidebar.notifications.subtitle" = "Pick which events should fire a notification. Toggles run independently.";
 "sidebar.settings" = "Settings";
 
-/* Popover customization */
-"popover.settings.title" = "Popover";
-"popover.settings.subtitle" = "Pick a layout and customize what appears when you click the menu-bar icon.";
-
 /* Section subtitles */
 "sidebar.display.subtitle" = "Choose which metrics appear in the menu bar and how they look.";
-"sidebar.themes.subtitle" = "Colours and visual style.";
+"sidebar.popover.subtitle" = "Choose which metrics and sections appear in the popover, and reorder them.";
 "sidebar.settings.subtitle" = "Proxy, refresh interval, and other global preferences.";
-"popover.settings.preview" = "Preview";
-"popover.settings.reset" = "Reset to defaults";
-"popover.zone.general" = "General";
-"popover.zone.hero" = "Hero";
-"popover.zone.content" = "Content";
-"popover.option.showPlanBadge" = "Show plan badge (PRO / MAX / TEAM)";
-"popover.option.showRefreshButton" = "Show manual refresh button";
-"popover.option.showSonnet" = "Show Sonnet ring (Classic variant)";
-"popover.option.showDesign" = "Show Design ring (Classic variant)";
-"popover.option.showExtraCredits" = "Show Extra Credits ring";
-"settings.group.extra" = "Extra metrics in menu bar";
-
-"popoverVariant.classic" = "Classic";
-"popoverVariant.compact" = "Compact";
-"popoverVariant.focus" = "Focus";
-
-"popoverBlock.sessionRing" = "Session ring (5h)";
-"popoverBlock.weeklyRing" = "Weekly ring";
-"popoverBlock.sessionPaceBar" = "Session pacing";
-"popoverBlock.weeklyPaceBar" = "Weekly pacing";
-"popoverBlock.sessionChip" = "Session chip";
-"popoverBlock.weeklyChip" = "Weekly chip";
-"popoverBlock.sessionPaceTile" = "Session pacing tile";
-"popoverBlock.weeklyPaceTile" = "Weekly pacing tile";
-"popoverBlock.sessionPaceMini" = "Session pacing (mini)";
-"popoverBlock.weeklyPaceMini" = "Weekly pacing (mini)";
-"popoverBlock.timestamp" = "Updated timestamp";
-"popoverBlock.openTokenEaterButton" = "Open TokenEater button";
-"popoverBlock.quitButton" = "Quit button";
-
-"focusHero.sessionReset" = "Session reset countdown";
-"focusHero.weeklyReset" = "Weekly reset countdown";
-"focusHero.sessionValue" = "Session percentage";
-"focusHero.weeklyValue" = "Weekly percentage";
-
-"focus.hero.sessionReset" = "Until session reset";
-"focus.hero.weeklyReset" = "Until weekly reset";
-"focus.hero.sessionValue" = "Session usage";
-"focus.hero.weeklyValue" = "Weekly usage";
-"focus.sat.sessionReset" = "Reset";
-"focus.sat.weeklyReset" = "Weekly reset";
-"focus.sat.sessionValue" = "Session";
-"focus.sat.weeklyValue" = "Weekly";
-
-"compact.chip.sessionLeft" = "%@ left";
-"compact.chip.weeklyLeft" = "in %@";
 
 "menubar.updated.never" = "never";
 
-/* Menu bar style picker */
-"settings.menubar.style" = "Style";
-"menuBarStyle.classic" = "Classic";
-"menuBarStyle.mono" = "Mono";
-"menuBarStyle.badge" = "Badge";
+/* Menu bar engine (MenuBarSectionView) - pinned metrics */
+"settings.menubar.addPin" = "Add metric";
+"settings.menubar.removePin" = "Remove";
+"settings.menubar.prefix" = "Prefix";
+"settings.menubar.prefix.symbol" = "Icon";
+"settings.menubar.prefix.shortLabel" = "Label";
+"settings.menubar.prefix.none" = "None";
+"settings.menubar.value" = "Value";
+"settings.menubar.value.percentUsed" = "Used %";
+"settings.menubar.value.percentRemaining" = "Remaining %";
+"settings.menubar.value.dollars" = "Dollar amount";
+"settings.menubar.countdown" = "Show countdown";
 
-/* Pacing shape picker */
-"settings.pacing.shape" = "Pacing indicator shape";
-"pacingShape.circle" = "Circle";
-"pacingShape.diamond" = "Diamond";
-"pacingShape.square" = "Square";
-"pacingShape.triangle" = "Triangle";
-"pacingShape.star" = "Star";
+/* Menu bar engine - display mode */
+"settings.menubar.display" = "Display";
+"settings.menubar.mode" = "Mode";
+"settings.menubar.mode.all" = "All pins";
+"settings.menubar.mode.highestRisk" = "Highest risk";
+"settings.menubar.mode.rotate" = "Rotate";
+"settings.menubar.rotateSeconds %lld" = "Rotate every %lld s";
+"settings.menubar.countdownFormat" = "Countdown format";
+
+/* Menu bar engine - appearance */
+"settings.menubar.appearance" = "Appearance";
+"settings.menubar.colorMode" = "Color";
+"settings.menubar.color.risk" = "Risk colors";
+"settings.menubar.showIcon" = "Show icons";
+"settings.menubar.separator" = "Separator";
+"settings.menubar.fixedWidth" = "Fixed width";
+"settings.menubar.fixedWidth.hint" = "Pad the status item so its width doesn't jump around as values change.";
+
+/* Popover engine (PopoverSectionView) */
+"settings.popover.preview" = "Live preview";
+"settings.popover.preview.timestamp" = "Updated 2m ago";
+"settings.popover.metrics.header" = "Metrics";
+"settings.popover.metrics.footer" = "Drag to reorder. Uncheck to hide from the popover - session or weekly must stay visible.";
+"settings.popover.metrics.lastVisible" = "At least session or weekly must stay visible";
+"settings.popover.sections.header" = "Sections";
+"settings.popover.sections.footer" = "Toggle optional rows shown below the metrics.";
+"settings.popover.showPacing" = "Pacing chips";
+"settings.popover.showSpend" = "Extra credits spend";
+"settings.popover.showTimestamp" = "Last updated timestamp";
 
 /* Menu bar icon right-click menu */
 "contextmenu.refresh" = "Refresh now";
-"contextmenu.open" = "Open TokenEater...";
-"contextmenu.variant" = "Popover layout";
+"contextmenu.open" = "Open RaiUsage...";
 "contextmenu.settings" = "Settings";
 
-"pacing.session.label.short" = "Session";
-"pacing.weekly.label.short" = "Weekly";
 
-/* MARK: - Onboarding (rework 2026-04) */
+/* MARK: - Onboarding hero (single screen, rework 2026-07) */
 
-"onboarding.hero.label" = "SETUP";
-"onboarding.hero.title" = "Hey, you're here";
-"onboarding.hero.subtitle" = "Couple of permissions and TokenEater is live";
-"onboarding.progress.label %lld %lld" = "%lld / %lld ready";
-"onboarding.finish" = "Finish";
-
-"onboarding.badge.required" = "REQUIRED";
-"onboarding.badge.optional" = "OPTIONAL";
-
-/* Card 1 - Claude Code */
-"onboarding.card.claudecode.title" = "Claude Code";
-"onboarding.card.claudecode.checking" = "checking...";
-"onboarding.card.claudecode.status.checking" = "auto-detecting";
-"onboarding.card.claudecode.status.detected" = "detected on your machine";
-"onboarding.card.claudecode.status.notfound" = "not found - install + retry";
-"onboarding.card.claudecode.notfound.step1" = "install via brew install claude";
-"onboarding.card.claudecode.notfound.step2" = "sign in once: run claude";
-"onboarding.card.claudecode.notfound.step3" = "come back, hit retry";
-"onboarding.card.claudecode.retry" = "Retry";
-
-/* Card 2 - Notifications */
-"onboarding.card.notifications.title" = "Notifications";
-"onboarding.card.notifications.status.off" = "off - flick to allow";
-"onboarding.card.notifications.status.on" = "on - heads-up enabled";
-"onboarding.card.notifications.status.denied" = "blocked at system level";
-"onboarding.card.notifications.authorized.scene" = "click to send a test";
-"onboarding.card.notifications.denied.scene" = "blocked - open Notifications settings to enable";
-"onboarding.card.notifications.test" = "Send test";
-"onboarding.card.notifications.opensettings" = "Open Settings";
-
-/* Card 3 - Connect */
-"onboarding.card.connect.title" = "Connect";
-"onboarding.card.connect.status.idle" = "tap to authorize";
-"onboarding.card.connect.status.connecting" = "talking to keychain...";
-"onboarding.card.connect.status.success" = "connected";
-"onboarding.card.connect.status.failed" = "access denied";
-"onboarding.card.connect.connecting" = "authorizing...";
-"onboarding.card.connect.success.scene" = "connected - finish unlocked";
-"onboarding.card.connect.failed.scene" = "access denied";
-"onboarding.card.connect.authorize" = "Authorize";
-"onboarding.card.connect.retry" = "Retry";
-"onboarding.card.connect.idle.scene" = "macOS will ask once.\nTap Always Allow when it does.";
+"onboarding.hero.caption" = "Live Claude usage, right in your menu bar.";
+"onboarding.hero.done" = "Done";
+"onboarding.hero.notifications" = "Enable notifications";
+"onboarding.hero.notifications.enabled" = "Notifications enabled";
 
 /* Vendor Status Banner */
 "status.banner.degraded" = "Claude is degraded";
@@ -629,7 +476,6 @@
 
 /* Fable (Claude Fable weekly limit) */
 "metric.fable" = "Fable";
-"popover.option.showFable" = "Show Fable ring (Classic variant)";
 "settings.notifications.track.fable" = "Track Claude Fable weekly";
 "notif.title.fable.pace" = "Ahead of Fable pace";
 "notif.body.fable.pace" = "You're ahead of an even Fable burn rate, not near the cap. Fine if intentional.";

@@ -1,15 +1,16 @@
 import SwiftUI
 import AppKit
 
-/// TokenEater design tokens -> single source of truth for the window app chrome
+/// RaiUsage design tokens -> single source of truth for the window app chrome
 /// (sidebar, cards, panels, typo, spacing, motion).
 ///
-/// Scope : window app only. Does NOT apply to the menu bar, popover, or widget,
-/// which keep their existing identity.
+/// Scope : window app only. Does NOT apply to the menu bar or popover, which
+/// keep their existing identity.
 ///
-/// Cohabits with user themes (`ThemeColors` + presets default/neon/pastel/monochrome)
-/// which continue to color *only* the data points (gauges, pacing dots, metric
-/// values). The chrome stays constant regardless of the active theme.
+/// Cohabits with the semantic `RiskZone` / `PacingZone` colors (see
+/// `Shared/Design/Semantic.swift`) which color *only* the data points
+/// (gauges, pacing dots, metric values). The chrome stays constant
+/// regardless of a data point's risk zone.
 ///
 /// Reference -> `docs/design/MASTER.md`
 enum DS {
@@ -17,53 +18,8 @@ enum DS {
     // MARK: - Palette (Chrome)
 
     enum Palette {
-        // Three-tier depth hierarchy. All R=G=B for a strictly neutral grey
-        // ramp -> no blue / warm tint, just luminance steps.
-        // L0 (window) -> bgBase.
-        // L1 (outer panels: Settings content + SubSidebar siblings, Stats Hero, pacing, settings.* sections) -> bgElevated.
-        // L2 (innermost: nested metric tiles inside grids) -> bgPanel.
-        static let bgBase     = Color(hex: "#0E0E0E") // L0
-        static let bgElevated = Color(hex: "#141414") // L1
-        static let bgPanel    = Color(hex: "#1A1A1A") // L2
-        static let bgOverlay  = Color(hex: "#1C1C1C")
-        static let bgHover    = Color(hex: "#202020")
-        static let bgActive   = Color(hex: "#242424")
-
-        // Ambient gradient -> top-left lift (L1) -> bottom-right floor (L0)
-        static let gradientTopLeft     = Color(hex: "#141414")
-        static let gradientBottomRight = Color(hex: "#0E0E0E")
-
-        // Glass
-        static let glassFill     = Color.white.opacity(0.03)
-        static let glassFillHi   = Color.white.opacity(0.06)
-        static let glassBorder   = Color.white.opacity(0.08) // bumped from 0.06 for clearer panel edges
-        static let glassBorderHi = Color.white.opacity(0.14)
+        // Faint hairline for popover sub-panel edges.
         static let glassBorderLo = Color.white.opacity(0.04)
-
-        // Text -> exact site values
-        static let textPrimary   = Color(hex: "#F5F5F7")
-        static let textSecondary = Color(hex: "#A1A1AA")
-        static let textTertiary  = Color(hex: "#63636E")
-        static let textDisabled  = Color(hex: "#63636E").opacity(0.4)
-
-        // Module accents -> three hues already native to the site.
-        // Stats = lime green (brand primary), History = info blue,
-        // Settings = warm orange. Opacity capped at 0.15 when used as fill.
-        static let accentStats    = Color(hex: "#32CE6A") // brand green -> data, confidence
-        static let accentHistory  = Color(hex: "#60A5FA") // info blue -> time, narrative
-        static let accentSettings = Color(hex: "#FFB347") // warm orange -> config, control
-
-        // Brand green variants (for pressed / light states on primary actions)
-        static let brandPrimary  = Color(hex: "#32CE6A")
-        static let brandPressed  = Color(hex: "#28A554")
-        static let brandLight    = Color(hex: "#5EDDA0")
-
-        // Semantic states (notifications, banners, errors).
-        // Re-use site tokens so the app feels consistent with the landing page.
-        static let semanticSuccess = Color(hex: "#32CE6A")
-        static let semanticWarning = Color(hex: "#FFB347")
-        static let semanticError   = Color(hex: "#F87171")
-        static let semanticInfo    = Color(hex: "#60A5FA")
     }
 
     // MARK: - Spacing
@@ -77,8 +33,6 @@ enum DS {
         static let md:   CGFloat = 16
         static let lg:   CGFloat = 24
         static let xl:   CGFloat = 32
-        static let xxl:  CGFloat = 48
-        static let xxxl: CGFloat = 64
     }
 
     // MARK: - Radii
@@ -88,11 +42,8 @@ enum DS {
     /// "pill-y" without going full sharp-edged.
     enum Radius {
         static let input:  CGFloat = 6
-        static let small:  CGFloat = 6
         static let card:   CGFloat = 8
         static let cardLg: CGFloat = 12
-        static let modal:  CGFloat = 16
-        static let pill:   CGFloat = 100
     }
 
     // MARK: - Layout
@@ -101,90 +52,36 @@ enum DS {
     /// Centralised so the onboarding (and future panels) read from a single
     /// source instead of magic numbers in `MainAppView`.
     enum Layout {
-        /// Onboarding window - 16:10 macbook-style ratio. Sized to feel
-        /// present on a MacBook display without going fullscreen. The user
-        /// passes through this once at first launch (and again if they
-        /// reset onboarding from Settings). Designed to fit a 2x2 cards
-        /// grid next to a left-side hero column.
-        static let onboardingWindow = CGSize(width: 1080, height: 675)
+        /// Onboarding window - compact, single-column hero screen (logo,
+        /// title, caption, connect CTAs). The user passes through this once
+        /// at first launch (and again if they reset onboarding from Settings).
+        static let onboardingWindow = CGSize(width: 520, height: 560)
+
+        /// Horizontal inset for a Settings section's header (title/subtitle/
+        /// trailing action), matching the leading/trailing margin
+        /// `.formStyle(.grouped)` gives its own Section content. Keeps every
+        /// section's header aligned with the form below it instead of
+        /// sitting flush against - or overflowing - the pane edge.
+        static let settingsHeaderInset: CGFloat = 20
     }
 
-    // MARK: - Shadows
+    // MARK: - Native design constants (stage-2 language)
 
-    /// Shadow token -> deep but soft, glass-compatible.
-    /// Low alpha + large blur so shadows never look hard on dark chrome.
-    struct ShadowToken {
-        let radius: CGFloat
-        let y: CGFloat
-        let alpha: Double
-
-        var color: Color { Color.black.opacity(alpha) }
-    }
-
-    enum Shadow {
-        static let flat   = ShadowToken(radius: 0,  y: 0,  alpha: 0)
-        static let subtle = ShadowToken(radius: 12, y: 4,  alpha: 0.12)
-        static let lift   = ShadowToken(radius: 24, y: 8,  alpha: 0.20)
-        static let elev   = ShadowToken(radius: 48, y: 16, alpha: 0.32)
-    }
-
-    /// Arc-like glow -> halo bleeding from the border on hover/focus.
-    /// Apply via `.dsGlow(color:strong:)` below.
-    enum Glow {
-        static let subtle = ShadowToken(radius: 16, y: 0, alpha: 0.25)
-        static let strong = ShadowToken(radius: 24, y: 0, alpha: 0.40)
-    }
-
-    /// Binary toggle for the popover and monitoring glow / halo effect.
-    /// `.glow` keeps the default neon look, `.flat` removes every shadow on
-    /// gauges, metric text, and pacing tiles. Driven via a single environment
-    /// value so toggling the setting applies everywhere immediately.
-    enum GlowIntensity: String, CaseIterable, Identifiable, Hashable {
-        case glow
-        case flat
-
-        public var id: String { rawValue }
-
-        var radiusMultiplier: CGFloat {
-            self == .glow ? 1.0 : 0.0
-        }
-
-        var opacityMultiplier: Double {
-            self == .glow ? 1.0 : 0.0
-        }
-
-        var localizedLabel: String {
-            switch self {
-            case .glow: return String(localized: "settings.glow.mode.glow")
-            case .flat: return String(localized: "settings.glow.mode.flat")
-            }
-        }
+    /// Icon disc sizes for various contexts.
+    enum IconDisc {
+        static let standard: CGFloat = 32
+        static let hero: CGFloat = 72
     }
 
     // MARK: - Motion
 
     enum Duration {
-        static let fast:  Double = 0.18   // micro hover, cursor changes
-        static let base:  Double = 0.24   // default transitions
-        static let slow:  Double = 0.40   // section changes, slide-ins
-        static let xslow: Double = 0.60   // rare, hero entrances
+        static let base: Double = 0.24   // default transitions
     }
 
     enum Motion {
-        // Standard easings
-        static let easeOut   = Animation.easeOut(duration: Duration.base)
-        static let easeIn    = Animation.easeIn(duration: Duration.base)
-        static let easeInOut = Animation.easeInOut(duration: Duration.base)
-
-        // Arc-like "liquid" springs
-        static let springSnap   = Animation.spring(response: 0.30, dampingFraction: 0.90) // hover / press
-        static let springLiquid = Animation.spring(response: 0.50, dampingFraction: 0.80) // section change
-        static let springSoft   = Animation.spring(response: 0.70, dampingFraction: 0.85) // modal entry
-
-        // Live metrics pulse (2s, never-ending, subtle)
-        static let shimmerPulse = Animation
-            .easeInOut(duration: 2.0)
-            .repeatForever(autoreverses: true)
+        static let easeInOut  = Animation.easeInOut(duration: Duration.base)
+        static let springSnap = Animation.spring(response: 0.30, dampingFraction: 0.90) // hover / press
     }
 
     // MARK: - Typography
@@ -194,80 +91,61 @@ enum DS {
     /// mentionnée dans le MASTER.md -> on ship le font avec le bundle quand on
     /// veut le basculer, sans toucher aux call sites.
     enum Typography {
-        static let display      = Font.system(size: 34, weight: .bold).leading(.tight)
         static let title1       = Font.system(size: 22, weight: .semibold)
         static let title2       = Font.system(size: 17, weight: .semibold)
         static let body         = Font.system(size: 13, weight: .regular)
         static let label        = Font.system(size: 11, weight: .medium)
         static let micro        = Font.system(size: 10, weight: .medium)
-        static let metricLarge  = Font.system(size: 28, weight: .semibold, design: .monospaced)
         static let metricInline = Font.system(size: 13, weight: .regular, design: .monospaced)
     }
 }
 
-// MARK: - View modifiers
+// MARK: - Pastel palette (2026-07-13 design revision)
 
-extension View {
-    /// Apply a `DS.Shadow` / `DS.Glow` token directly.
-    func dsShadow(_ token: DS.ShadowToken) -> some View {
-        self.shadow(color: token.color, radius: token.radius, x: 0, y: token.y)
-    }
+/// The app's single palette: pastel risk colors on opaque dark surfaces.
+/// Hex literals live ONLY here (and inside the `Color(hex:)`/`NSColor(hex:)`
+/// inits in `Shared/Extensions/Extensions.swift`) - every other view or
+/// helper references `DS.Pastel` / `RiskZone` / `PacingZone`, never a raw hex
+/// value. See `docs/design/2026-07-13-native-overhaul-design.md` section 2.
+extension DS {
+    enum Pastel {
+        // Risk zones - pastel, for use on the app's dark surfaces.
+        static let green = Color(hex: 0x86D6A0)
+        static let amber = Color(hex: 0xF2C288)
+        static let coral = Color(hex: 0xEF9A8D)
+        static let blue  = Color(hex: 0x93B4EE)
 
-    /// Tinted Arc-like glow using an arbitrary color (usually module accent).
-    func dsGlow(color: Color, token: DS.ShadowToken = DS.Glow.subtle) -> some View {
-        self.shadow(color: color.opacity(token.alpha), radius: token.radius, x: 0, y: token.y)
-    }
+        // Deepened variants - contrast-boosted, for a LIGHT menu bar only.
+        static let greenDeep = Color(hex: 0x4FAE74)
+        static let amberDeep = Color(hex: 0xD99A4E)
+        static let coralDeep = Color(hex: 0xD46A58)
+        static let blueDeep  = Color(hex: 0x5B82D6)
 
-    /// Standard glass surface : `bgElevated` at partial alpha, `.ultraThinMaterial`
-    /// underneath for the blur, a soft inner border on top.
-    func dsGlass(radius: CGFloat = DS.Radius.card) -> some View {
-        self
-            .background(
-                RoundedRectangle(cornerRadius: radius)
-                    .fill(DS.Palette.bgElevated.opacity(0.72))
-                    .background(
-                        .ultraThinMaterial,
-                        in: RoundedRectangle(cornerRadius: radius)
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: radius)
-                    .stroke(DS.Palette.glassBorder, lineWidth: 1)
-            )
-    }
+        // Opaque surfaces - window/popover chrome, no material or vibrancy.
+        static let base   = Color(hex: 0x161719) // window/popover background
+        static let card   = Color(hex: 0x1A1B1E) // elevated card
+        static let border = Color(hex: 0x2C2E33) // hairline
+        static let track  = Color(hex: 0x3A3D45) // gauge/bar track - light enough to read as an empty bar on dark/translucent surfaces
 
-    /// Full-bleed ambient gradient used as the window root background.
-    func dsWindowBackground() -> some View {
-        self.background(
-            LinearGradient(
-                colors: [DS.Palette.gradientTopLeft, DS.Palette.gradientBottomRight],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-        )
-    }
+        /// NSColor mirrors, needed wherever AppKit (not SwiftUI) draws -
+        /// chiefly the menu bar's custom `NSAttributedString` rendering.
+        enum NS {
+            static let green = NSColor(hex: 0x86D6A0)
+            static let amber = NSColor(hex: 0xF2C288)
+            static let coral = NSColor(hex: 0xEF9A8D)
+            static let blue  = NSColor(hex: 0x93B4EE)
 
-    /// Cursor-aware highlight ready for card hover. Pass a bound CGPoint
-    /// updated via `.onContinuousHover`; the overlay draws a soft radial
-    /// spotlight that follows the cursor, Arc-style.
-    func dsSpotlight(at point: CGPoint?, tint: Color = .white) -> some View {
-        self.overlay {
-            GeometryReader { geo in
-                if let p = point {
-                    RadialGradient(
-                        colors: [tint.opacity(0.08), .clear],
-                        center: UnitPoint(
-                            x: p.x / max(geo.size.width, 1),
-                            y: p.y / max(geo.size.height, 1)
-                        ),
-                        startRadius: 0,
-                        endRadius: 140
-                    )
-                    .blendMode(.plusLighter)
-                    .allowsHitTesting(false)
-                }
-            }
+            static let greenDeep = NSColor(hex: 0x4FAE74)
+            static let amberDeep = NSColor(hex: 0xD99A4E)
+            static let coralDeep = NSColor(hex: 0xD46A58)
+            static let blueDeep  = NSColor(hex: 0x5B82D6)
+
+            /// Adaptive menu bar text - near-white on a dark bar, near-black
+            /// on a light one. The risk signal lives in the dot
+            /// (`RiskZone.dotColor`/`PacingZone.dotColor`), not the text.
+            static let textOnDark  = NSColor(hex: 0xF4F4F6)
+            static let textOnLight = NSColor(hex: 0x1C1C1E)
         }
     }
 }
+

@@ -2,25 +2,13 @@ import SwiftUI
 
 struct MainAppView: View {
     @EnvironmentObject private var usageStore: UsageStore
-    @EnvironmentObject private var themeStore: ThemeStore
     @EnvironmentObject private var settingsStore: SettingsStore
 
-    @State private var selectedSpace: AppSpace = .monitoring
-    @State private var selectedSettingsSection: SettingsSection = .general
-    @State private var powerHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selection: SidebarItem = .monitoring
 
-    // Blur burst transition between spaces. `displayedSpace` lags
-    // `selectedSpace` until the blur peak, where the content swap fires
-    // inside `withTransaction(animation: nil)` so the swap is invisible
-    // under the full blur (no implicit crossfade).
-    @State private var displayedSpace: AppSpace = .monitoring
-    @State private var transitionBlur: CGFloat = 0
-    @State private var isTransitioningSpace = false
-
-    // Hoisted from the child views so each store's cache outlives the
-    // navigation-driven view destruction; re-entering a space hits warm
-    // data instead of triggering a fresh load.
+    // Hoisted from the child views so each store's cache outlives sidebar
+    // navigation; re-selecting a space hits warm data instead of triggering
+    // a fresh load.
     @StateObject private var historyStore = HistoryStore()
     @StateObject private var insightsStore = MonitoringInsightsStore()
 
@@ -32,145 +20,91 @@ struct MainAppView: View {
                 onboardingContent
             }
         }
-        .environment(\.glowIntensity, settingsStore.glowIntensity)
     }
 
     // MARK: - Main
 
     private var mainContent: some View {
-        VStack(spacing: DS.Spacing.sm) {
-            HStack {
-                TopPillsNav(selection: $selectedSpace)
-                    .padding(.leading, DS.Spacing.xs)
-
-                Spacer()
-
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(powerHovering ? DS.Palette.semanticError : DS.Palette.textTertiary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle()
-                                .fill(powerHovering
-                                      ? DS.Palette.semanticError.opacity(0.18)
-                                      : DS.Palette.glassFill)
-                                .overlay(
-                                    Circle().stroke(
-                                        powerHovering
-                                            ? DS.Palette.semanticError.opacity(0.55)
-                                            : DS.Palette.glassBorderLo,
-                                        lineWidth: 1
-                                    )
-                                )
-                        )
-                        .shadow(color: powerHovering ? DS.Palette.semanticError.opacity(0.55) : .clear,
-                                radius: powerHovering ? 8 : 0)
-                        .scaleEffect(powerHovering && !reduceMotion ? 1.05 : 1.0)
-                }
-                .buttonStyle(.plain)
-                .help(String(localized: "menubar.quit"))
-                .padding(.trailing, DS.Spacing.xs)
-                .onHover { hovering in
-                    withAnimation(DS.Motion.springSnap) { powerHovering = hovering }
-                }
-            }
-            .padding(.top, DS.Spacing.xs)
-
-            Group {
-                switch displayedSpace {
-                case .monitoring:
-                    MonitoringView(insightsStore: insightsStore)
-                case .history:
-                    HistoryView(store: historyStore)
-                case .settings:
-                    SettingsRootView(selection: $selectedSettingsSection)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .id(displayedSpace)
-            .blur(radius: reduceMotion ? 0 : transitionBlur)
-            .opacity(reduceMotion ? max(0, 1 - transitionBlur) : 1)
-            // Safety net: ensure no implicit animation runs on the
-            // `displayedSpace` swap (the flip is also wrapped in
-            // `withTransaction(animation: nil)` upstream).
-            .animation(nil, value: displayedSpace)
+        NavigationSplitView {
+            SidebarNav(selection: $selection)
+        } detail: {
+            detailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The AppKit-hosted NSWindow (see StatusBarController.showDashboard)
+                // has a hidden native title, so a `.toolbar` item never docks to the
+                // real trailing edge - it renders bunched next to the sidebar toggle
+                // instead. A dedicated top-bar strip, reserved above the detail
+                // content via safeAreaInset, is what actually lands the button at
+                // the trailing edge in every section without overlapping each
+                // page's own header row.
+                .safeAreaInset(edge: .top, spacing: 0) { topBar }
         }
-        .padding(.horizontal, DS.Spacing.sm)
-        .padding(.bottom, DS.Spacing.sm)
-        .dsWindowBackground()
+        .background(DS.Pastel.base)
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSection)) { notification in
             guard let payload = notification.userInfo?["section"] as? String,
                   let target = NavigationTarget.parse(payload) else { return }
-            // No `withAnimation` wrap - the blur burst is driven by
-            // `onChange(of: selectedSpace)` with its own contexts.
-            selectedSpace = target.space
-            if let sub = target.settingsSection {
-                withAnimation(DS.Motion.springSnap) {
-                    selectedSettingsSection = sub
-                }
-            }
-        }
-        .onChange(of: selectedSpace) { _, newSpace in
-            performSpaceTransition(to: newSpace)
+            selection = target.item
         }
     }
 
-    // MARK: - Blur burst transition between spaces
-
-    /// Drives the inter-space transition: easeIn ramp-up to peak blur,
-    /// instant content swap (no implicit animation) while fully blurred,
-    /// then easeOut ramp-down. Reduce-motion bypasses blur and fades the
-    /// surface via opacity derived from the same `transitionBlur` ramp.
-    private func performSpaceTransition(to newSpace: AppSpace) {
-        guard newSpace != displayedSpace else { return }
-
-        // A transition is already in flight. Don't start a second one - it
-        // reconciles against the latest `selectedSpace` when it finishes
-        // (see the swap and the tail re-check below), so rapid clicks never
-        // leave the pill nav and the content showing different spaces.
-        if isTransitioningSpace { return }
-        isTransitioningSpace = true
-
-        let rampUp: Double = reduceMotion ? 0.09 : 0.16
-        let rampDown: Double = reduceMotion ? 0.09 : 0.24
-        let blurPeak: CGFloat = 5
-
-        withAnimation(.easeIn(duration: rampUp)) {
-            transitionBlur = blurPeak
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "menubar.quit"))
         }
+        .padding(.trailing, DS.Spacing.md)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + rampUp) {
-            // Swap to the *current* selection, not the value captured when
-            // this run started - the user may have clicked again during the
-            // ramp-up, and the pill nav already reflects that newer choice.
-            let target = self.selectedSpace
-            withTransaction(Transaction(animation: nil)) {
-                self.displayedSpace = target
-            }
+    @ViewBuilder
+    private var detailContent: some View {
+        switch selection {
+        case .monitoring:
+            MonitoringView(insightsStore: insightsStore)
+        case .history:
+            HistoryView(store: historyStore)
+        case .settings(let section):
+            settingsDetail(for: section)
+        }
+    }
 
-            withAnimation(.easeOut(duration: rampDown)) {
-                self.transitionBlur = 0
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + rampDown) {
-                self.isTransitioningSpace = false
-                // If the selection moved on again after our swap, run once
-                // more to catch up so content and selector stay in sync.
-                if self.selectedSpace != self.displayedSpace {
-                    self.performSpaceTransition(to: self.selectedSpace)
-                }
-            }
+    /// Routes a `SettingsSection` to its configuration screen. Folded in from
+    /// the deleted `SettingsRootView` -> each screen still lives in its own
+    /// file, this is just the switch.
+    @ViewBuilder
+    private func settingsDetail(for section: SettingsSection) -> some View {
+        switch section {
+        case .general:
+            SettingsSectionView()
+        case .menuBar:
+            MenuBarSectionView()
+        case .popover:
+            PopoverSectionView()
+        case .pacing:
+            PacingSectionView(
+                initialWarning: settingsStore.warningThreshold,
+                initialCritical: settingsStore.criticalThreshold,
+                initialMargin: settingsStore.pacingMargin
+            )
+        case .notifications:
+            NotificationsSectionView()
         }
     }
 
     // MARK: - Onboarding
 
     private var onboardingContent: some View {
-        OnboardingView()
+        OnboardingHeroView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(DS.Palette.bgElevated)
     }
 }
