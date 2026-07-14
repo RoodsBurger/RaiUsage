@@ -300,6 +300,119 @@ struct OAuthServiceTests {
         #expect(t1.accessToken == "access-123")
         #expect(recorder.requests.count == 1)
     }
+
+    @Test("failed coalesced refresh delivers the failure to every queued completion")
+    func refreshCoalescesFailure() throws {
+        let (service, recorder) = makeSUT()
+        let tokens = OAuthTokens(accessToken: "old-access", refreshToken: "old-refresh", expiresAt: .distantFuture)
+
+        var captured1: Result<OAuthTokens, OAuthError>?
+        var captured2: Result<OAuthTokens, OAuthError>?
+        var captured3: Result<OAuthTokens, OAuthError>?
+        service.refresh(tokens) { captured1 = $0 }
+        service.refresh(tokens) { captured2 = $0 }
+        service.refresh(tokens) { captured3 = $0 }
+
+        #expect(recorder.requests.count == 1)
+
+        recorder.respondToAll(data: Data(), response: httpResponse(500), error: nil)
+
+        #expect(captured1 == .failure(.refreshFailed(500)))
+        #expect(captured2 == .failure(.refreshFailed(500)))
+        #expect(captured3 == .failure(.refreshFailed(500)))
+        #expect(recorder.requests.count == 1)
+    }
+}
+
+// MARK: - Concurrency (background-delivering transport)
+
+/// Thread-safe integer collector for asserting that every completion fired.
+private final class CompletionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() {
+        lock.lock(); count += 1; lock.unlock()
+    }
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return count
+    }
+}
+
+/// This suite is intentionally NOT @MainActor: its transport seam delivers on a
+/// background queue, and OAuthService then hops user completions to the main
+/// queue. A background test thread lets those main-queue blocks drain. It is the
+/// regression guard for the refresh-coalescing data race — against the pre-fix
+/// (unsynchronized) implementation these hang or drop completions.
+@Suite("OAuthService concurrency")
+struct OAuthServiceConcurrencyTests {
+
+    private func makeService(deliverOn queue: DispatchQueue, response: (Data?, URLResponse?, Error?)) -> OAuthService {
+        OAuthService(
+            transport: { _, completion in
+                queue.async { completion(response.0, response.1, response.2) }
+            },
+            browserOpener: { _ in },
+            loopbackStarter: { _, _, _ in {} },
+            randomToken: { "fixed-token" },
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
+    }
+
+    @Test("N concurrent refreshes with background delivery fire every completion exactly once (success)", .timeLimit(.minutes(1)))
+    func concurrentRefreshSuccessDeliversAll() async {
+        let n = 16
+        // Repeat rounds to widen the race window against a buggy implementation.
+        for _ in 0..<25 {
+            let bgQueue = DispatchQueue(label: "test.oauth.transport.success", attributes: .concurrent)
+            let service = makeService(deliverOn: bgQueue, response: (validTokenResponseJSON(), httpResponse(200), nil))
+            let tokens = OAuthTokens(accessToken: "old", refreshToken: "old-r", expiresAt: .distantFuture)
+            let counter = CompletionCounter()
+
+            await withCheckedContinuation { continuation in
+                let group = DispatchGroup()
+                for _ in 0..<n {
+                    group.enter()
+                    DispatchQueue.global().async {
+                        service.refresh(tokens) { _ in
+                            counter.increment()
+                            group.leave()
+                        }
+                    }
+                }
+                group.notify(queue: .global()) { continuation.resume() }
+            }
+
+            #expect(counter.value == n)
+        }
+    }
+
+    @Test("N concurrent refreshes with background delivery fire every completion exactly once (failure)", .timeLimit(.minutes(1)))
+    func concurrentRefreshFailureDeliversAll() async {
+        let n = 16
+        for _ in 0..<25 {
+            let bgQueue = DispatchQueue(label: "test.oauth.transport.failure", attributes: .concurrent)
+            let service = makeService(deliverOn: bgQueue, response: (Data(), httpResponse(500), nil))
+            let tokens = OAuthTokens(accessToken: "old", refreshToken: "old-r", expiresAt: .distantFuture)
+            let counter = CompletionCounter()
+
+            await withCheckedContinuation { continuation in
+                let group = DispatchGroup()
+                for _ in 0..<n {
+                    group.enter()
+                    DispatchQueue.global().async {
+                        service.refresh(tokens) { _ in
+                            counter.increment()
+                            group.leave()
+                        }
+                    }
+                }
+                group.notify(queue: .global()) { continuation.resume() }
+            }
+
+            #expect(counter.value == n)
+        }
+    }
 }
 
 // MARK: - MockOAuthService

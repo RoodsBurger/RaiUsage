@@ -46,12 +46,23 @@ final class OAuthService: OAuthServiceProtocol {
         }
     }
 
+    /// Guarded by `stateQueue`.
     private var pendingLogin: PendingLogin?
 
     // MARK: - Refresh Coalescing
 
     /// Completions waiting on the single in-flight refresh exchange, if any.
+    /// Guarded by `stateQueue`.
     private var pendingRefreshCompletions: [(Result<OAuthTokens, OAuthError>) -> Void] = []
+
+    /// Serializes every access to the mutable login/refresh state. The production
+    /// transport delivers URLSession completions on a background queue while
+    /// `refresh`/`cancelLogin` are driven from the main queue, so all reads and
+    /// mutations of `pendingLogin`, `pendingRefreshCompletions`, and a session's
+    /// `isFinished`/`redirectURI`/`stopListener` fields run here. Injected seams
+    /// (transport, browser, listener) and user completions are always invoked
+    /// outside this queue to avoid reentrant deadlocks.
+    private let stateQueue = DispatchQueue(label: "com.tokeneater.oauth.state")
 
     // MARK: - Init
 
@@ -79,7 +90,11 @@ final class OAuthService: OAuthServiceProtocol {
     private static let startRealLoopbackListener: LoopbackStarter = { onReady, onRequest, onFailure in
         let listener: NWListener
         do {
-            listener = try NWListener(using: .tcp, on: .any)
+            // Bind to loopback only so no other host on the network can reach the
+            // callback listener; the ephemeral port is chosen by the stack.
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
+            listener = try NWListener(using: parameters)
         } catch {
             onFailure()
             return {}
@@ -135,26 +150,37 @@ final class OAuthService: OAuthServiceProtocol {
         let state = randomToken()
 
         let session = PendingLogin(state: state, codeVerifier: verifier, completion: completion)
-        pendingLogin = session
+        stateQueue.sync { pendingLogin = session }
 
         let stop = loopbackStarter(
             { [weak self] port in self?.handleLoopbackReady(port: port, challenge: challenge, session: session) },
             { [weak self] raw in self?.handleLoopbackCallback(raw) },
             { [weak self] in self?.handleLoopbackFailure(session: session) }
         )
-        session.stopListener = stop
+
+        // If the listener failed or was cancelled inline (before this returns), the
+        // session is already finished; tear down the just-created listener instead.
+        let alreadyFinished: Bool = stateQueue.sync {
+            if session.isFinished { return true }
+            session.stopListener = stop
+            return false
+        }
+        if alreadyFinished { stop() }
     }
 
     private func handleLoopbackReady(port: UInt16, challenge: String, session: PendingLogin) {
-        guard session === pendingLogin, !session.isFinished else { return }
-        let redirectURI = "http://127.0.0.1:\(port)/callback"
-        session.redirectURI = redirectURI
+        let redirectURI: String? = stateQueue.sync {
+            guard pendingLogin === session, !session.isFinished else { return nil }
+            let uri = "http://127.0.0.1:\(port)/callback"
+            session.redirectURI = uri
+            return uri
+        }
+        guard let redirectURI else { return }
         let url = OAuthURLBuilder.authorizeURL(redirectURI: redirectURI, challenge: challenge, state: session.state)
         browserOpener(url)
     }
 
     private func handleLoopbackFailure(session: PendingLogin) {
-        guard session === pendingLogin, !session.isFinished else { return }
         finishLogin(session: session, result: .failure(.listenerFailed), via: session.completion)
     }
 
@@ -162,8 +188,12 @@ final class OAuthService: OAuthServiceProtocol {
     /// exactly as the real listener's connection handler does. Tests call this directly
     /// to simulate a received callback without binding a real socket.
     func handleLoopbackCallback(_ raw: String) {
-        guard let session = pendingLogin, !session.isFinished else { return }
-        let redirectURI = session.redirectURI ?? OAuthConstants.manualRedirectURI
+        let session: PendingLogin? = stateQueue.sync {
+            guard let session = pendingLogin, !session.isFinished else { return nil }
+            return session
+        }
+        guard let session else { return }
+        let redirectURI = stateQueue.sync { session.redirectURI } ?? OAuthConstants.manualRedirectURI
         processCallback(raw, expectedState: session.state, codeVerifier: session.codeVerifier, redirectURI: redirectURI) { [weak self] result in
             guard let self else { return }
             self.finishLogin(session: session, result: result, via: session.completion)
@@ -173,7 +203,11 @@ final class OAuthService: OAuthServiceProtocol {
     // MARK: - completeManualLogin
 
     func completeManualLogin(pasted: String, completion: @escaping (Result<OAuthTokens, OAuthError>) -> Void) {
-        guard let session = pendingLogin, !session.isFinished else {
+        let session: PendingLogin? = stateQueue.sync {
+            guard let session = pendingLogin, !session.isFinished else { return nil }
+            return session
+        }
+        guard let session else {
             deliver(.failure(.stateMismatch), via: completion)
             return
         }
@@ -186,21 +220,34 @@ final class OAuthService: OAuthServiceProtocol {
     // MARK: - cancelLogin
 
     func cancelLogin() {
-        guard let session = pendingLogin else { return }
-        pendingLogin = nil
-        session.isFinished = true
-        session.stopListener?()
-        deliver(.failure(.cancelled), via: session.completion)
+        var captured: (stop: (() -> Void)?, completion: (Result<OAuthTokens, OAuthError>) -> Void)?
+        stateQueue.sync {
+            guard let session = pendingLogin else { return }
+            pendingLogin = nil
+            session.isFinished = true
+            captured = (session.stopListener, session.completion)
+        }
+        guard let captured else { return }
+        captured.stop?()
+        deliver(.failure(.cancelled), via: captured.completion)
     }
 
     // MARK: - Shared Login Completion
 
+    /// Atomically claims completion of `session`. Only the first caller (cancel or a
+    /// resolved exchange) wins; later callers see `isFinished` and do nothing, so a
+    /// completion is never dropped or delivered twice.
     private func finishLogin(session: PendingLogin, result: Result<OAuthTokens, OAuthError>, via completion: @escaping (Result<OAuthTokens, OAuthError>) -> Void) {
-        session.isFinished = true
-        session.stopListener?()
-        if pendingLogin === session {
-            pendingLogin = nil
+        var stop: (() -> Void)?
+        let shouldDeliver: Bool = stateQueue.sync {
+            guard !session.isFinished else { return false }
+            session.isFinished = true
+            stop = session.stopListener
+            if pendingLogin === session { pendingLogin = nil }
+            return true
         }
+        guard shouldDeliver else { return }
+        stop?()
         deliver(result, via: completion)
     }
 
@@ -241,9 +288,11 @@ final class OAuthService: OAuthServiceProtocol {
     // MARK: - refresh
 
     func refresh(_ tokens: OAuthTokens, completion: @escaping (Result<OAuthTokens, OAuthError>) -> Void) {
-        pendingRefreshCompletions.append(completion)
-        guard pendingRefreshCompletions.count == 1 else { return }
-        performRefresh(tokens)
+        let shouldStart: Bool = stateQueue.sync {
+            pendingRefreshCompletions.append(completion)
+            return pendingRefreshCompletions.count == 1
+        }
+        if shouldStart { performRefresh(tokens) }
     }
 
     private func performRefresh(_ tokens: OAuthTokens) {
@@ -261,8 +310,11 @@ final class OAuthService: OAuthServiceProtocol {
     }
 
     private func finishRefresh(with result: Result<OAuthTokens, OAuthError>) {
-        let completions = pendingRefreshCompletions
-        pendingRefreshCompletions = []
+        let completions: [(Result<OAuthTokens, OAuthError>) -> Void] = stateQueue.sync {
+            let snapshot = pendingRefreshCompletions
+            pendingRefreshCompletions = []
+            return snapshot
+        }
         for completion in completions {
             deliver(result, via: completion)
         }
