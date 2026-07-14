@@ -71,6 +71,24 @@ struct MenuBarConfigTests {
         #expect(decoded == PinnedMetricConfig(id: .sevenDay))
     }
 
+    @Test("an explicitly empty pinned array decodes as empty, not defaults")
+    func decodeEmptyPinnedArray() throws {
+        // Zero pins is a valid saved state (icon-only menu bar): the
+        // defaults-on-missing fallback must not resurrect the default pins.
+        let data = Data(#"{"pinned":[]}"#.utf8)
+        let decoded = try JSONDecoder().decode(MenuBarConfig.self, from: data)
+        #expect(decoded.pinned.isEmpty)
+    }
+
+    @Test("empty pinned round-trips through Codable")
+    func emptyPinnedRoundTrip() throws {
+        let original = MenuBarConfig(pinned: [])
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(MenuBarConfig.self, from: data)
+        #expect(decoded.pinned.isEmpty)
+        #expect(decoded == original)
+    }
+
     @Test("menuBarPinnable excludes sessionReset, opus and cowork")
     func pinnableExcludesSessionReset() {
         #expect(!MetricID.menuBarPinnable.contains(.sessionReset))

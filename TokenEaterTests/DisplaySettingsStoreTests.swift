@@ -168,6 +168,17 @@ struct DisplaySettingsStoreTests {
         #expect(second.thresholds == UsageThresholds(warningPercent: 65, criticalPercent: 92))
     }
 
+    // MARK: - Empty pins persistence
+
+    @Test("an emptied pinned list persists and round-trips (icon-only menu bar)")
+    func emptyPinsRoundTrip() {
+        clean(); defer { clean() }
+        let first = DisplaySettingsStore()
+        first.menuBarConfig.pinned = []
+        let second = DisplaySettingsStore()
+        #expect(second.menuBarConfig.pinned.isEmpty)
+    }
+
     @Test("child change relays objectWillChange to SettingsStore parent")
     func relaysToParent() {
         clean(); defer { clean() }

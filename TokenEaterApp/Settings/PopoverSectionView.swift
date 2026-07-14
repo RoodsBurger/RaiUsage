@@ -76,7 +76,6 @@ struct PopoverSectionView: View {
     private func metricRow(_ metric: MetricID) -> some View {
         let config = settingsStore.display.popoverConfig
         let isVisible = !config.hiddenMetrics.contains(metric)
-        let locked = isVisible && !config.canHide(metric)
         return HStack(spacing: 10) {
             Button {
                 toggleVisibility(metric)
@@ -86,8 +85,6 @@ struct PopoverSectionView: View {
                     .foregroundStyle(isVisible ? DS.Pastel.green : .secondary)
             }
             .buttonStyle(.plain)
-            .disabled(locked)
-            .help(locked ? String(localized: "settings.popover.metrics.lastVisible") : "")
 
             Text(metric.label)
                 .font(.system(size: 12, weight: .medium))
@@ -99,14 +96,13 @@ struct PopoverSectionView: View {
         .padding(.vertical, 2)
     }
 
-    /// At-least-one guard lives on the model (`PopoverConfig.canHide`) - this
-    /// just calls it before flipping `hiddenMetrics`.
+    /// Every metric can be hidden, session and weekly included - the popover
+    /// collapses its metrics block when the list ends up empty.
     private func toggleVisibility(_ metric: MetricID) {
         var config = settingsStore.display.popoverConfig
         if config.hiddenMetrics.contains(metric) {
             config.hiddenMetrics.remove(metric)
         } else {
-            guard config.canHide(metric) else { return }
             config.hiddenMetrics.insert(metric)
         }
         settingsStore.display.popoverConfig = config
@@ -148,15 +144,19 @@ private struct PopoverPreviewCard: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
 
-            VStack(spacing: 10) {
-                ForEach(rows) { row in
-                    PopoverMetricRowView(row: row)
+            // Mirrors the real popover: the metrics block collapses entirely
+            // when every row is toggled off.
+            if !rows.isEmpty {
+                Divider()
+                VStack(spacing: 10) {
+                    ForEach(rows) { row in
+                        PopoverMetricRowView(row: row)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
 
             if config.showSpend {
                 Divider()

@@ -65,7 +65,13 @@ struct MenuBarSectionView: View {
                     // renderUncached: this preview's RenderData deliberately
                     // forces hasConfig/hasError, so it must not overwrite the
                     // shared cache the real status item's render(_:) relies on.
-                    Image(nsImage: MenuBarRenderer.renderUncached(previewData))
+                    // Zero pins yields the template logo (icon-only status
+                    // item); template mode + white tint keeps that glyph
+                    // visible on the dark capsule, mirroring the menu bar.
+                    let image = MenuBarRenderer.renderUncached(previewData)
+                    Image(nsImage: image)
+                        .renderingMode(image.isTemplate ? .template : .original)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 5)
                         .background(Capsule().fill(Color.black.opacity(0.85)))
@@ -178,7 +184,6 @@ struct MenuBarSectionView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .disabled(settingsStore.display.menuBarConfig.pinned.count <= 1)
             .help(String(localized: "settings.menubar.removePin"))
         }
         .padding(.vertical, 2)
@@ -204,9 +209,8 @@ struct MenuBarSectionView: View {
         .frame(maxWidth: 160)
     }
 
-    /// At-least-one guard: never remove the last pin.
+    /// Every pin is removable - zero pins renders the status item icon-only.
     private func removePin(_ metric: MetricID) {
-        guard settingsStore.display.menuBarConfig.pinned.count > 1 else { return }
         settingsStore.display.menuBarConfig.pinned.removeAll { $0.id == metric }
     }
 

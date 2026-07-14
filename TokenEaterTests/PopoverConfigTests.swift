@@ -84,32 +84,14 @@ struct PopoverConfigTests {
         #expect(config.visibleMetrics(available: Set(MetricID.popoverDefaultOrder)).isEmpty)
     }
 
-    // MARK: - canHide guard
+    // MARK: - Fully optional metrics
 
-    @Test("canHide allows hiding fiveHour while sevenDay stays visible")
-    func canHideFiveHourWhenWeeklyVisible() {
-        let config = PopoverConfig()
-        #expect(config.canHide(.fiveHour) == true)
-    }
-
-    @Test("canHide forbids hiding fiveHour once sevenDay is already hidden")
-    func canHideForbidsHidingBothSessionAndWeekly() {
+    @Test("session and weekly can both be hidden at once - no floor remains")
+    func sessionAndWeeklyBothHideable() {
         var config = PopoverConfig()
-        config.hiddenMetrics = [.sevenDay]
-        #expect(config.canHide(.fiveHour) == false)
+        config.hiddenMetrics = [.fiveHour, .sevenDay]
+        let available = Set(MetricID.popoverDefaultOrder)
+        #expect(config.visibleMetrics(available: available) == [.opus, .sonnet, .cowork, .fable, .design])
     }
 
-    @Test("canHide forbids hiding sevenDay once fiveHour is already hidden")
-    func canHideForbidsHidingWeeklyWhenSessionHidden() {
-        var config = PopoverConfig()
-        config.hiddenMetrics = [.fiveHour]
-        #expect(config.canHide(.sevenDay) == false)
-    }
-
-    @Test("canHide always allows non session/weekly metrics")
-    func canHideAlwaysAllowsOtherMetrics() {
-        var config = PopoverConfig()
-        config.hiddenMetrics = [.fiveHour, .sevenDay, .opus, .sonnet, .cowork, .fable]
-        #expect(config.canHide(.design) == true)
-    }
 }

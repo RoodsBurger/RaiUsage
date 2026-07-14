@@ -16,19 +16,23 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             PopoverHeaderRow(worstZone: worstZone)
 
-            separator
-
             if vendorStatusStore.isDegraded && vendorStatusStore.claudeStatus != nil {
-                VendorStatusBanner()
                 separator
+                VendorStatusBanner()
             }
 
             if usageStore.hasError {
-                PopoverErrorBanner()
                 separator
+                PopoverErrorBanner()
             }
 
-            metricsSection
+            // Skipped entirely when every metric row is toggled off, so the
+            // spend/timestamp sections sit right under the header instead of
+            // leaving an empty padded band between two separators.
+            if !metricRows.isEmpty {
+                separator
+                metricsSection
+            }
 
             if popoverConfig.showSpend, let extra = usageStore.extraUsage, extra.isEnabled {
                 separator

@@ -50,19 +50,13 @@ struct PopoverConfig: Codable, Equatable, Sendable {
         showTimestamp = try container.decodeIfPresent(Bool.self, forKey: .showTimestamp) ?? defaults.showTimestamp
     }
 
-    /// The ordered, visible, API-available metrics to render.
+    /// The ordered, visible, API-available metrics to render. Every metric can
+    /// be hidden - session and weekly included - so this can be empty; the
+    /// popover then collapses the metrics block entirely.
     func visibleMetrics(available: Set<MetricID>) -> [MetricID] {
         metricOrder.filter { !hiddenMetrics.contains($0) && available.contains($0) }
     }
 
-    /// False only for `.fiveHour`/`.sevenDay` when hiding it would leave the
-    /// other one hidden too - the popover always keeps at least session or
-    /// weekly visible. Every other metric can always be hidden.
-    func canHide(_ metric: MetricID) -> Bool {
-        guard metric == .fiveHour || metric == .sevenDay else { return true }
-        let other: MetricID = metric == .fiveHour ? .sevenDay : .fiveHour
-        return !hiddenMetrics.contains(other)
-    }
 }
 
 extension MetricID {

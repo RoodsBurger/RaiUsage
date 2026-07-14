@@ -31,7 +31,7 @@
 "pacing.session.label" = "Session pacing";
 "pacing.weekly.label" = "Weekly pacing";
 "settings.metrics.pinned" = "Pinned metrics";
-"settings.metrics.pinned.footer" = "Choose which metrics appear in the menu bar.";
+"settings.metrics.pinned.footer" = "Choose which metrics appear in the menu bar. Remove them all to show just the icon.";
 "settings.tab.proxy" = "Proxy";
 "settings.proxy.toggle" = "Enable SOCKS5 proxy";
 "settings.proxy.footer" = "Useful behind a corporate firewall via an SSH tunnel.";
@@ -439,8 +439,7 @@
 "settings.popover.preview" = "Live preview";
 "settings.popover.preview.timestamp" = "Updated 2m ago";
 "settings.popover.metrics.header" = "Metrics";
-"settings.popover.metrics.footer" = "Drag to reorder. Uncheck to hide from the popover - session or weekly must stay visible.";
-"settings.popover.metrics.lastVisible" = "At least session or weekly must stay visible";
+"settings.popover.metrics.footer" = "Drag to reorder. Uncheck to hide from the popover.";
 "settings.popover.sections.header" = "Sections";
 "settings.popover.sections.footer" = "Toggle optional rows shown below the metrics.";
 "settings.popover.showPacing" = "Pacing chips";

@@ -515,6 +515,27 @@ struct MenuBarBuildLineTests {
         #expect(MenuBarRenderer.buildLine(data: data).length == 0)
     }
 
+    @Test("zero pins renders icon-only: empty line, template logo image, zero fixed width")
+    func zeroPinsRendersIconOnly() {
+        let data = makeRenderData(pinned: [], fixedWidth: true)
+        #expect(MenuBarRenderer.buildLine(data: data).length == 0)
+        #expect(MenuBarRenderer.fixedWidthMeasurement(data: data) == 0)
+        // The imaging pipeline falls back to the template logo - the same
+        // icon-only rendering as the unconfigured state, never blank.
+        let image = MenuBarRenderer.renderUncached(data)
+        #expect(image.isTemplate == true)
+        #expect(image.size.width > 0)
+    }
+
+    @Test("zero pins renders the logo in every display mode")
+    func zeroPinsLogoInEveryMode() {
+        for mode in MenuBarDisplayMode.allCases {
+            let data = makeRenderData(pinned: [], displayMode: mode)
+            #expect(MenuBarRenderer.buildLine(data: data).length == 0, "\(mode)")
+            #expect(MenuBarRenderer.renderUncached(data).isTemplate == true, "\(mode)")
+        }
+    }
+
     @Test("same countdown pin renders three distinct strings across the three formats")
     func countdownHonorsResetDisplayFormat() {
         let pin = PinnedMetricConfig(id: .fiveHour, prefix: .none, value: .percentUsed, showCountdown: true)
