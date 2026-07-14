@@ -352,14 +352,16 @@ private struct PopoverSpendSection: View {
 
                 HStack(spacing: 4) {
                     Text(CurrencyFormatter.formatMinorUnits(used, currencyCode: extra.currency, locale: Locale(identifier: "en_US")))
+                        .monospacedDigit()
                     Text(String(localized: "dashboard.extra.separator"))
                         .foregroundStyle(.tertiary)
                     Text(CurrencyFormatter.formatMinorUnits(limit, currencyCode: extra.currency, locale: Locale(identifier: "en_US")))
+                        .monospacedDigit()
                     Spacer()
                     Text(String(localized: "dashboard.extra.monthly"))
                         .foregroundStyle(.tertiary)
                 }
-                .font(.caption2)
+                .font(.callout)
                 .foregroundStyle(.secondary)
             } else {
                 Text(String(localized: "dashboard.extra.noLimit"))

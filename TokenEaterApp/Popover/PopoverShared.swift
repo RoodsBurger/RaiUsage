@@ -22,10 +22,6 @@ enum PopoverColors {
         )
     }
 
-    static func zone(_ zone: PacingZone) -> Color {
-        zone.semanticColor
-    }
-
     static func zoneGradient(_ zone: PacingZone) -> LinearGradient {
         let base = zone.semanticColor
         return LinearGradient(colors: [base, base.lighter()], startPoint: .leading, endPoint: .trailing)
