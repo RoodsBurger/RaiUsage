@@ -524,6 +524,8 @@
 "settings.updates.failed" = "Update failed: %@";
 "popover.update.available" = "Update available — v%@";
 "update.error.badresponse" = "GitHub returned an unexpected response.";
+"update.error.ratelimited" = "GitHub rate limit reached (often a shared work network). Try again later, or download the DMG from the releases page.";
+"update.error.httpstatus" = "GitHub returned an unexpected response (HTTP %d). Try again later.";
 "update.error.noasset" = "The latest release has no DMG to download.";
 "update.error.download" = "Download failed (%@).";
 "update.error.noappindmg" = "No app bundle found inside the update DMG.";

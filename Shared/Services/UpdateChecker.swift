@@ -29,8 +29,22 @@ final class UpdateChecker: UpdateCheckerProtocol, @unchecked Sendable {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
             throw UpdateCheckerError.badResponse
+        }
+        // 403/429 with an exhausted anonymous quota is the common case on a
+        // shared (corporate NAT) IP - surface it as its own message rather
+        // than a scary generic failure. GitHub signals it via the
+        // x-ratelimit-remaining header.
+        if http.statusCode == 403 || http.statusCode == 429 {
+            let remaining = http.value(forHTTPHeaderField: "x-ratelimit-remaining")
+            if remaining == "0" || http.statusCode == 429 {
+                throw UpdateCheckerError.rateLimited
+            }
+            throw UpdateCheckerError.httpStatus(http.statusCode)
+        }
+        guard http.statusCode == 200 else {
+            throw UpdateCheckerError.httpStatus(http.statusCode)
         }
         return try Self.updateInfo(from: data, currentVersion: currentVersion)
     }

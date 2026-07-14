@@ -6,7 +6,9 @@ enum OAuthConstants {
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let authorizeURL = "https://claude.ai/oauth/authorize"
     static let tokenURL = "https://console.anthropic.com/v1/oauth/token"
-    static let manualRedirectURI = "https://console.anthropic.com/oauth/code/callback"
+    // Claude Code 2.x registers the platform.claude.com form (verified against
+    // the shipping binary); the old console.anthropic.com path is stale.
+    static let manualRedirectURI = "https://platform.claude.com/oauth/code/callback"
     static let scopes = "user:profile user:inference"
 }
 

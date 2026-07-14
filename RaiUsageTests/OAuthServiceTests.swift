@@ -109,7 +109,7 @@ struct OAuthServiceTests {
         #expect(params["state"] == "state-value")
         #expect(params["code_challenge"] == PKCE.challenge(for: "verifier-value"))
         #expect(params["client_id"] == OAuthConstants.clientID)
-        #expect((params["redirect_uri"] ?? nil)?.hasPrefix("http://127.0.0.1:") == true)
+        #expect((params["redirect_uri"] ?? nil)?.hasPrefix("http://localhost:") == true)
     }
 
     @Test("loopback callback seam exchanges the code and delivers tokens via beginLogin's completion")

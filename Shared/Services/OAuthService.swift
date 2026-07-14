@@ -171,7 +171,11 @@ final class OAuthService: OAuthServiceProtocol {
     private func handleLoopbackReady(port: UInt16, challenge: String, session: PendingLogin) {
         let redirectURI: String? = stateQueue.sync {
             guard pendingLogin === session, !session.isFinished else { return nil }
-            let uri = "http://127.0.0.1:\(port)/callback"
+            // The OAuth client's whitelist matches on the hostname: it accepts
+            // http://localhost:<port>/callback (Claude Code's own registered
+            // form) and rejects a 127.0.0.1 literal. The listener still binds
+            // 127.0.0.1; localhost resolves to it.
+            let uri = "http://localhost:\(port)/callback"
             session.redirectURI = uri
             return uri
         }

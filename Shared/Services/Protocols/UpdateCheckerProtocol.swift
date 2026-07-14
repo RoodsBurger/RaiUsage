@@ -3,11 +3,16 @@ import Foundation
 enum UpdateCheckerError: LocalizedError, Equatable {
     case badResponse
     case noDMGAsset
+    case rateLimited
+    case httpStatus(Int)
 
     var errorDescription: String? {
         switch self {
         case .badResponse: String(localized: "update.error.badresponse")
         case .noDMGAsset:  String(localized: "update.error.noasset")
+        case .rateLimited: String(localized: "update.error.ratelimited")
+        case .httpStatus(let code):
+            String(format: String(localized: "update.error.httpstatus"), code)
         }
     }
 }
