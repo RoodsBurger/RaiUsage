@@ -186,7 +186,10 @@ onboarding).
   - All numbers `.monospacedDigit()` to prevent menu bar width jitter; fixed-
     width rendering option to stop neighbor icons shifting.
 - **Popover (single layout, ~340pt wide).** One layout (the old 3-variant +
-  drag-editor system is gone). **Configurable (owner review, reversing the earlier
+  drag-editor system is gone). **No arrow** (owner review): presented as a
+  borderless panel anchored under the status item (RaiDrive-style), backed by an
+  `NSVisualEffectView` for native translucency — not an `NSPopover` with its
+  up-arrow. **Configurable (owner review, reversing the earlier
   zero-config call):** a `PopoverConfig` — independent of the menu bar's
   `MenuBarConfig` — lets the user choose/reorder which metric rows appear and
   toggle sections (pacing chips, spend, timestamp), edited in a Settings → Popover
