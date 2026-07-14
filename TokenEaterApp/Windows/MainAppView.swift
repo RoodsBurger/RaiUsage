@@ -30,16 +30,14 @@ struct MainAppView: View {
         } detail: {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            NSApplication.shared.terminate(nil)
-                        } label: {
-                            Image(systemName: "power")
-                        }
-                        .help(String(localized: "menubar.quit"))
-                    }
-                }
+                // The AppKit-hosted NSWindow (see StatusBarController.showDashboard)
+                // has a hidden native title, so a `.toolbar` item never docks to the
+                // real trailing edge - it renders bunched next to the sidebar toggle
+                // instead. A dedicated top-bar strip, reserved above the detail
+                // content via safeAreaInset, is what actually lands the button at
+                // the trailing edge in every section without overlapping each
+                // page's own header row.
+                .safeAreaInset(edge: .top, spacing: 0) { topBar }
         }
         .background(DS.Pastel.base)
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSection)) { notification in
@@ -47,6 +45,25 @@ struct MainAppView: View {
                   let target = NavigationTarget.parse(payload) else { return }
             selection = target.item
         }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "menubar.quit"))
+        }
+        .padding(.trailing, DS.Spacing.md)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder

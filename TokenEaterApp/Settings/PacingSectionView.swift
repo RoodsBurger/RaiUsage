@@ -574,6 +574,7 @@ struct PacingSectionView: View {
         LabeledContent(label) {
             HStack {
                 Slider(value: value, in: range, step: 5)
+                    .tint(DS.Pastel.green)
                 Text("\(Int(value.wrappedValue))%")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
