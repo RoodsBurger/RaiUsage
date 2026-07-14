@@ -69,9 +69,19 @@ final class UpdateStore: ObservableObject {
         return true
     }
 
-    /// Manual "Check for updates": bypasses the 24h throttle.
+    /// Manual "Check for updates": bypasses the 24h auto-throttle but keeps a
+    /// short cooldown so rapid repeat clicks can't spiral the anonymous
+    /// GitHub rate limit (60/hr per IP - easily hit behind a shared corporate
+    /// NAT). A click inside the cooldown re-shows the previous result instead
+    /// of firing another request.
+    static let manualCheckCooldown: TimeInterval = 30
     func checkNow() async {
-        await performCheck(now: Date())
+        let now = Date()
+        let last = defaults.double(forKey: Self.lastCheckKey)
+        if case .failed = state, now.timeIntervalSince1970 - last < Self.manualCheckCooldown {
+            return
+        }
+        await performCheck(now: now)
     }
 
     private func performCheck(now: Date) async {
