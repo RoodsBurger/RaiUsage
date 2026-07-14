@@ -53,29 +53,7 @@ final class SettingsStore: ObservableObject {
     var menuBarConfig: MenuBarConfig {
         get { display.menuBarConfig } set { display.menuBarConfig = newValue }
     }
-    var displaySonnet: Bool {
-        get { display.displaySonnet } set { display.displaySonnet = newValue }
-    }
-    var displayDesign: Bool {
-        get { display.displayDesign } set { display.displayDesign = newValue }
-    }
-    var displayFable: Bool {
-        get { display.displayFable } set { display.displayFable = newValue }
-    }
-    /// Same as `displayDesign` but for the paid Extra Credits pool. Only
-    /// surfaced in settings when `UsageStore.hasExtraCredits` is true.
-    var displayExtraCredits: Bool {
-        get { display.displayExtraCredits } set { display.displayExtraCredits = newValue }
-    }
 
-    // MARK: - Popover
-    /// Full layout configuration for the menu-bar popover. 3 variants share this
-    /// struct; switching `activeVariant` leaves the other variants untouched so
-    /// the user can keep 3 distinct preferences. Persisted as JSON under
-    /// `popoverConfig` in UserDefaults.
-    @Published var popoverConfig: PopoverConfig {
-        didSet { savePopoverConfig() }
-    }
     @Published var hasCompletedOnboarding: Bool {
         didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") }
     }
@@ -304,16 +282,6 @@ final class SettingsStore: ObservableObject {
         }()
         self.statusShowMenuBarBadge = SettingsDefaults.bool(key: "statusShowMenuBarBadge", default: true)
 
-        // Popover layout config. Fresh install or decode failure -> defaults
-        // that reproduce the v4.10.x popover visually (Classic variant, all
-        // blocks visible).
-        if let data = UserDefaults.standard.data(forKey: "popoverConfig"),
-           let decoded = try? JSONDecoder().decode(PopoverConfig.self, from: data) {
-            self.popoverConfig = Self.reconcile(decoded)
-        } else {
-            self.popoverConfig = .default
-        }
-
         // The piège: a @Published child only emits the parent's objectWillChange
         // when reassigned, not when one of ITS @Published changes. Relay it so a
         // view observing `settings` re-renders on `settings.pacing.*` changes.
@@ -328,24 +296,6 @@ final class SettingsStore: ObservableObject {
         self.displayRelay = display.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
-    }
-
-    // MARK: - Popover persistence
-
-    private func savePopoverConfig() {
-        guard let data = try? JSONEncoder().encode(popoverConfig) else { return }
-        UserDefaults.standard.set(data, forKey: "popoverConfig")
-    }
-
-    /// Ensures a decoded config still satisfies the validation rules (at least
-    /// one visible block in hero+middle for non-focus variants). If anything is
-    /// off, fall back to defaults for that variant only.
-    private static func reconcile(_ config: PopoverConfig) -> PopoverConfig {
-        var fixed = config
-        if !fixed.hasVisibleContent(for: .classic) { fixed.classic = .classicDefault }
-        if !fixed.hasVisibleContent(for: .compact) { fixed.compact = .compactDefault }
-        // Focus always valid by construction (hero driven by focusHero radio).
-        return fixed
     }
 
     // MARK: - Metrics

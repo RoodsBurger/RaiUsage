@@ -10,8 +10,7 @@ struct DisplaySettingsStoreTests {
         "showMenuBar", "launchInBackground", "pinnedMetrics", "resetDisplayFormat",
         "smartColorEnabled", "smartResetColor", "smartColorProfile",
         "sessionPacingDisplayMode", "weeklyPacingDisplayMode",
-        "pacingDisplayMode", "menuBarConfig",
-        "displaySonnet", "displayDesign", "showSessionReset",
+        "pacingDisplayMode", "menuBarConfig", "showSessionReset",
         "warningThreshold", "criticalThreshold",
     ]
     private func clean() { displayKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
@@ -28,8 +27,6 @@ struct DisplaySettingsStoreTests {
         #expect(store.smartColorProfile == .default)
         #expect(store.sessionPacingDisplayMode == .dotDelta)
         #expect(store.weeklyPacingDisplayMode == .dotDelta)
-        #expect(store.displaySonnet == false)
-        #expect(store.displayDesign == false)
         #expect(store.warningThreshold == 60)
         #expect(store.criticalThreshold == 85)
         #expect(store.thresholds == UsageThresholds(warningPercent: 60, criticalPercent: 85))

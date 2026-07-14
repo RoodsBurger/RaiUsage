@@ -10,6 +10,8 @@
 "metric.session" = "5h";
 "metric.design" = "Design";
 "metric.serviceStatus" = "Service status";
+"metric.opus" = "Opus";
+"metric.cowork" = "Cowork";
 "settings.group.design" = "Claude Design";
 
 /* Extra usage (paid credits pool) */
@@ -335,7 +337,6 @@
 "settings.section.reset.cancel" = "Cancel";
 "settings.section.reset.action" = "Reset";
 "settings.display.reset.confirm" = "Reset all display settings?";
-"settings.popover.reset.confirm" = "Reset all popover settings?";
 "settings.notifications.reset.confirm" = "Reset all notification toggles?";
 
 /* Dashboard */
@@ -443,64 +444,14 @@
 "sidebar.display" = "Menu bar";
 "sidebar.pacing" = "Pacing";
 "sidebar.pacing.subtitle" = "Smart Color, sensitivity, and your workweek schedule.";
-"sidebar.popover" = "Popover";
 "sidebar.notifications" = "Notifications";
 "sidebar.notifications.subtitle" = "Pick which events should fire a notification. Toggles run independently.";
 "sidebar.settings" = "Settings";
 
-/* Popover customization */
-"popover.settings.title" = "Popover";
-"popover.settings.subtitle" = "Pick a layout and customize what appears when you click the menu-bar icon.";
-
 /* Section subtitles */
 "sidebar.display.subtitle" = "Choose which metrics appear in the menu bar and how they look.";
 "sidebar.settings.subtitle" = "Proxy, refresh interval, and other global preferences.";
-"popover.settings.preview" = "Preview";
-"popover.settings.reset" = "Reset to defaults";
-"popover.zone.general" = "General";
-"popover.zone.hero" = "Hero";
-"popover.zone.content" = "Content";
-"popover.option.showPlanBadge" = "Show plan badge (PRO / MAX / TEAM)";
-"popover.option.showRefreshButton" = "Show manual refresh button";
-"popover.option.showSonnet" = "Show Sonnet ring (Classic variant)";
-"popover.option.showDesign" = "Show Design ring (Classic variant)";
-"popover.option.showExtraCredits" = "Show Extra Credits ring";
 "settings.group.extra" = "Extra metrics in menu bar";
-
-"popoverVariant.classic" = "Classic";
-"popoverVariant.compact" = "Compact";
-"popoverVariant.focus" = "Focus";
-
-"popoverBlock.sessionRing" = "Session ring (5h)";
-"popoverBlock.weeklyRing" = "Weekly ring";
-"popoverBlock.sessionPaceBar" = "Session pacing";
-"popoverBlock.weeklyPaceBar" = "Weekly pacing";
-"popoverBlock.sessionChip" = "Session chip";
-"popoverBlock.weeklyChip" = "Weekly chip";
-"popoverBlock.sessionPaceTile" = "Session pacing tile";
-"popoverBlock.weeklyPaceTile" = "Weekly pacing tile";
-"popoverBlock.sessionPaceMini" = "Session pacing (mini)";
-"popoverBlock.weeklyPaceMini" = "Weekly pacing (mini)";
-"popoverBlock.timestamp" = "Updated timestamp";
-"popoverBlock.openTokenEaterButton" = "Open TokenEater button";
-"popoverBlock.quitButton" = "Quit button";
-
-"focusHero.sessionReset" = "Session reset countdown";
-"focusHero.weeklyReset" = "Weekly reset countdown";
-"focusHero.sessionValue" = "Session percentage";
-"focusHero.weeklyValue" = "Weekly percentage";
-
-"focus.hero.sessionReset" = "Until session reset";
-"focus.hero.weeklyReset" = "Until weekly reset";
-"focus.hero.sessionValue" = "Session usage";
-"focus.hero.weeklyValue" = "Weekly usage";
-"focus.sat.sessionReset" = "Reset";
-"focus.sat.weeklyReset" = "Weekly reset";
-"focus.sat.sessionValue" = "Session";
-"focus.sat.weeklyValue" = "Weekly";
-
-"compact.chip.sessionLeft" = "%@ left";
-"compact.chip.weeklyLeft" = "in %@";
 
 "menubar.updated.never" = "never";
 
@@ -538,7 +489,6 @@
 /* Menu bar icon right-click menu */
 "contextmenu.refresh" = "Refresh now";
 "contextmenu.open" = "Open TokenEater...";
-"contextmenu.variant" = "Popover layout";
 "contextmenu.settings" = "Settings";
 
 "pacing.session.label.short" = "Session";
@@ -601,7 +551,6 @@
 
 /* Fable (Claude Fable weekly limit) */
 "metric.fable" = "Fable";
-"popover.option.showFable" = "Show Fable ring (Classic variant)";
 "settings.notifications.track.fable" = "Track Claude Fable weekly";
 "notif.title.fable.pace" = "Ahead of Fable pace";
 "notif.body.fable.pace" = "You're ahead of an even Fable burn rate, not near the cap. Fine if intentional.";

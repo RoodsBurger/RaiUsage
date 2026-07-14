@@ -41,10 +41,6 @@ struct SettingsRootView: View {
                     initialMargin: settingsStore.pacingMargin
                 )
             }
-        case .popover:
-            // PopoverSectionView owns its own scroll (editor list) + needs
-            // full height for the split layout.
-            PopoverSectionView()
         case .notifications:
             scrolling { NotificationsSectionView() }
         }

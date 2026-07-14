@@ -83,8 +83,9 @@ final class StatusBarController: NSObject {
         // Escape, app-deactivation (Cmd-Tab) and Space changes all close it, so
         // it matches the .transient behaviour on the desktop while no longer
         // self-dismissing over fullscreen.
+        // No forced `.appearance`: the popover follows the system material,
+        // so it tracks light/dark automatically instead of always rendering dark.
         popover.behavior = .applicationDefined
-        popover.appearance = NSAppearance(named: .darkAqua)
     }
 
     private func installPopoverContent() {
@@ -388,8 +389,8 @@ final class StatusBarController: NSObject {
 
     @objc private func statusBarClicked() {
         // Right-click or control-click routes to the contextual menu so users
-        // get quick access to the most common actions (refresh, variant
-        // switching, settings shortcuts, quit) without opening the popover.
+        // get quick access to the most common actions (refresh, settings
+        // shortcuts, quit) without opening the popover.
         if let event = NSApp.currentEvent,
            event.type == .rightMouseUp
             || (event.type == .leftMouseUp && event.modifierFlags.contains(.control)) {
@@ -435,29 +436,6 @@ final class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
-        // Popover layout submenu
-        let variantItem = NSMenuItem(
-            title: String(localized: "contextmenu.variant"),
-            action: nil,
-            keyEquivalent: ""
-        )
-        let variantSub = NSMenu()
-        for variant in PopoverVariant.allCases {
-            let item = NSMenuItem(
-                title: variant.localizedLabel,
-                action: #selector(contextSelectVariant(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = variant.rawValue
-            item.state = (settingsStore.popoverConfig.activeVariant == variant) ? .on : .off
-            variantSub.addItem(item)
-        }
-        variantItem.submenu = variantSub
-        menu.addItem(variantItem)
-
-        menu.addItem(.separator())
-
         // Settings submenu (direct section shortcuts)
         let settingsItem = NSMenuItem(
             title: String(localized: "contextmenu.settings"),
@@ -497,12 +475,6 @@ final class StatusBarController: NSObject {
 
     @objc private func contextOpenDashboard() {
         showDashboard()
-    }
-
-    @objc private func contextSelectVariant(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let variant = PopoverVariant(rawValue: raw) else { return }
-        settingsStore.popoverConfig.activeVariant = variant
     }
 
     @objc private func contextOpenSection(_ sender: NSMenuItem) {
@@ -545,32 +517,8 @@ final class StatusBarController: NSObject {
             // the active (fullscreen) Space so the cursor registers as inside.
             popoverWindow.collectionBehavior.insert(.canJoinAllSpaces)
             popoverWindow.collectionBehavior.insert(.fullScreenAuxiliary)
-
-            // Arrow-colour fix: on macOS 26 the NSPopoverFrame draws its arrow
-            // with a translucent (glass) material while our content is opaque,
-            // so the bare arrow shows through. There is no NSVisualEffectView to
-            // tint; paint an opaque backing on the frame view itself (which is
-            // clipped to the popover shape, arrow included) below the content.
-            if let frameView = self.popover.contentViewController?.view.superview {
-                // Idempotent: NSPopover reuses the same frame view across opens,
-                // so drop any tint left by a previous open before adding a new one
-                // (otherwise one NSView + layer leaks per open).
-                let tintID = NSUserInterfaceItemIdentifier("popoverArrowTint")
-                frameView.subviews
-                    .filter { $0.identifier == tintID }
-                    .forEach { $0.removeFromSuperview() }
-                let tint = NSView(frame: frameView.bounds)
-                tint.identifier = tintID
-                tint.autoresizingMask = [.width, .height]
-                tint.wantsLayer = true
-                tint.layer?.backgroundColor = Self.popoverBackgroundColor.cgColor
-                frameView.addSubview(tint, positioned: .below, relativeTo: frameView.subviews.first)
-            }
         }
     }
-
-    /// Opaque dark shared by the popover layouts (see ClassicLayoutView).
-    private static let popoverBackgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1)
 
     func showDashboard() {
         dismissPopover()

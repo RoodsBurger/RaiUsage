@@ -104,7 +104,7 @@ All are `@MainActor final class ...: ObservableObject`.
 | Feature | Key files |
 |---------|-----------|
 | Menu bar item | `StatusBarController.swift`, `MenuBarView.swift`, `Helpers/MenuBarRenderer.swift` |
-| Popover dashboard (Classic / Compact / Focus) | `TokenEaterApp/Popover/*LayoutView.swift`, `PopoverSectionView.swift` |
+| Popover (menu bar quick glance) | `TokenEaterApp/Popover/PopoverView.swift`, `MenuBarView.swift`, `PopoverShared.swift` |
 | Main window dashboard | `MainAppView.swift`, `MonitoringView.swift` |
 | History | `HistoryView.swift`, `Stores/HistoryStore.swift`, `Services/SessionHistoryService.swift`, `Helpers/JSONLParser.swift` |
 | Agent Watchers overlay | `OverlayWindowController.swift`, `OverlayView.swift`, `AgentWatchersSectionView.swift`, `Services/SessionMonitorService.swift`, `Helpers/ProcessResolver.swift`, `Stores/SessionStore.swift` |
