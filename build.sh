@@ -52,6 +52,13 @@ rm -rf "$DEST"
 cp -R "$BUILT" "$DEST"
 xattr -cr "$DEST"
 
+# Xcode registers the build product with LaunchServices during the build,
+# which shows up as a duplicate app in Spotlight/Launchpad. Unregister and
+# remove it so /Applications holds the only copy.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
+"$LSREG" -u "$(cd "$(dirname "$BUILT")" && pwd)/$APP" 2>/dev/null || true
+rm -rf "$BUILT"
+
 echo "==> Launching"
 open "$DEST"
 echo "==> Done."
