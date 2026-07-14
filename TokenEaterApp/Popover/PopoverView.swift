@@ -379,6 +379,8 @@ private extension RiskZone {
 
 // MARK: - Header
 
+/// Status disc + app name + plan badge. Refresh lives solely in the footer
+/// toolbar (`PopoverFooterToolbar`) - the header carries no actions.
 private struct PopoverHeaderRow: View {
     @EnvironmentObject private var usageStore: UsageStore
     let worstZone: RiskZone
@@ -410,18 +412,6 @@ private struct PopoverHeaderRow: View {
             }
 
             Spacer(minLength: 8)
-
-            Button {
-                Task { await usageStore.refresh(force: true) }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .disabled(usageStore.isLoading)
-            .help(String(localized: "contextmenu.refresh"))
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
