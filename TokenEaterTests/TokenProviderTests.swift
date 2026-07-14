@@ -184,6 +184,31 @@ struct TokenProviderTests {
         #expect(provider.hasTokenSource() == false)
     }
 
+    @Test("hasTokenSource is false for a fully-expired, non-refreshable borrowed source (matches currentToken == nil)")
+    func hasTokenSourceExpiryAware() {
+        let (provider, securityCLI, _, _, _, _, _) = makeSUT()
+        securityCLI.credential = BorrowedCredential(
+            accessToken: "dead-access",
+            refreshToken: nil,
+            expiresAt: Date().addingTimeInterval(-100)
+        )
+
+        #expect(provider.hasTokenSource() == false)
+        #expect(provider.currentToken() == nil) // the two agree - no phantom "detected"
+    }
+
+    @Test("hasTokenSource is true for an expired but refreshable borrowed source")
+    func hasTokenSourceExpiredButRefreshable() {
+        let (provider, securityCLI, _, _, _, _, _) = makeSUT()
+        securityCLI.credential = BorrowedCredential(
+            accessToken: "dead-access",
+            refreshToken: "still-has-refresh",
+            expiresAt: Date().addingTimeInterval(-100)
+        )
+
+        #expect(provider.hasTokenSource() == true)
+    }
+
     @Test("config.json decryption is tried before direct Keychain")
     func configJsonBeforeKeychain() {
         let oauthJSON: [String: Any] = [
@@ -526,6 +551,57 @@ struct TokenProviderTests {
 
         #expect(usable == false)
         #expect(oauthService.refreshCallCount == 0)
+        #expect(oauthStore.load() == nil)
+    }
+
+    @Test("borrowed-near-expiry-with-refresh: served as usable AND proactively refreshed once, currentToken never nil across the transition")
+    func refreshOAuthTokenIfNeededProactivelyRefreshesNearExpiryBorrowedCredential() async {
+        let refreshedTokens = OAuthTokens(accessToken: "proactive-refreshed-access", refreshToken: "proactive-refreshed-refresh", expiresAt: Date().addingTimeInterval(3600))
+        let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT(
+            oauthRefreshResult: .success(refreshedTokens)
+        )
+        // Not yet expired (60s ahead) but inside the 300s refresh margin, with a refresh token.
+        securityCLI.credential = BorrowedCredential(
+            accessToken: "near-expiry-borrowed-access",
+            refreshToken: "near-expiry-borrowed-refresh",
+            expiresAt: Date().addingTimeInterval(60)
+        )
+
+        // Still-usable: served directly before any refresh - never nil.
+        #expect(provider.currentToken() == "near-expiry-borrowed-access")
+
+        let usable = await provider.refreshOAuthTokenIfNeeded()
+
+        #expect(usable == true)
+        #expect(oauthService.refreshCallCount == 1) // exactly one proactive refresh
+        #expect(oauthService.lastRefreshTokens?.accessToken == "near-expiry-borrowed-access")
+        #expect(oauthService.lastRefreshTokens?.refreshToken == "near-expiry-borrowed-refresh")
+        #expect(oauthStore.load() == refreshedTokens) // the app now owns a token set
+        #expect(provider.currentToken() == "proactive-refreshed-access") // never nil across the transition
+    }
+
+    @Test("a hard-expired higher-priority renewable source is NOT rotated when a healthy lower-priority source is served")
+    func healthyServedSourceSuppressesRotationOfExpiredHigherPrioritySource() async {
+        let (provider, securityCLI, credentials, _, _, oauthStore, oauthService) = makeSUT()
+        // Source #1: hard-expired but WITH a refresh token.
+        securityCLI.credential = BorrowedCredential(
+            accessToken: "expired-hp-access",
+            refreshToken: "expired-hp-refresh",
+            expiresAt: Date().addingTimeInterval(-100)
+        )
+        // Source #2: healthy, well clear of the refresh margin.
+        credentials.credential = BorrowedCredential(
+            accessToken: "healthy-lp-access",
+            refreshToken: "healthy-lp-refresh",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+
+        #expect(provider.currentToken() == "healthy-lp-access")
+
+        let usable = await provider.refreshOAuthTokenIfNeeded()
+
+        #expect(usable == false) // a healthy served token needs no refresh
+        #expect(oauthService.refreshCallCount == 0) // and the dormant higher-priority source is never rotated
         #expect(oauthStore.load() == nil)
     }
 

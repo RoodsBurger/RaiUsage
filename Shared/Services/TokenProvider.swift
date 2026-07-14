@@ -53,14 +53,36 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
 
     var isBootstrapped: Bool { true }
 
+    /// Whether any usable-or-recoverable token source exists. A credential the
+    /// readers can parse is only counted when it is not hard-expired, or is
+    /// expired but carries a refresh token (recoverable via
+    /// `attemptBorrowedRefresh`), so onboarding never reports "Claude Code
+    /// detected" for a fully-dead, non-refreshable source that
+    /// `currentToken()` would then resolve to nil.
+    ///
+    /// The config.json source stays a presence check (`readEncryptedToken`)
+    /// rather than a decrypt-and-inspect: `checkClaudeCode()` calls this
+    /// before `bootstrap()` loads the decryption key, so decrypting here would
+    /// wrongly hide a present Claude Desktop config during onboarding. A
+    /// config credential that decrypts to a dead, non-refreshable token is
+    /// therefore still counted here - a narrower version of the same
+    /// inconsistency, deferred.
     func hasTokenSource() -> Bool {
         if oauthTokenStore.load() != nil { return true }
         if cachedToken != nil { return true }
-        if securityCLIReader.readToken() != nil { return true }
-        if credentialsFileReader.readToken() != nil { return true }
+        if isUsableOrRecoverable(securityCLIReader.readCredential()) { return true }
+        if isUsableOrRecoverable(credentialsFileReader.readCredential()) { return true }
         if configReader.readEncryptedToken() != nil { return true }
         if keychainReader(true) != nil { return true }
         return false
+    }
+
+    /// A borrowed credential counts as a token source when it is either still
+    /// usable (not hard-expired) or expired-but-renewable (has a refresh
+    /// token). A fully-dead, non-refreshable credential does not.
+    private func isUsableOrRecoverable(_ credential: BorrowedCredential?) -> Bool {
+        guard let credential else { return false }
+        return !credential.isExpired() || credential.refreshToken != nil
     }
 
     /// Returns the current token. This is synchronous and never touches the
@@ -97,8 +119,8 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// Proactively refreshes the OAuth token when it's near expiry. Callers
     /// await this once per refresh tick before reading the token so a
     /// near-expiry token is renewed ahead of the fetch. When the app owns no
-    /// OAuth tokens yet, falls through to the one-time borrow-and-self-refresh
-    /// fallback (see `attemptBorrowedRefresh`) instead of being a pure no-op.
+    /// OAuth tokens yet, falls through to the borrow-and-self-refresh path
+    /// (see `attemptBorrowedRefresh`) instead of being a pure no-op.
     func refreshOAuthTokenIfNeeded() async -> Bool {
         guard let tokens = oauthTokenStore.load() else {
             return await attemptBorrowedRefresh()
@@ -110,30 +132,36 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         return await performOAuthRefresh(tokens)
     }
 
-    /// Borrow-and-self-refresh fallback: runs only when the app owns no
-    /// OAuth tokens at all AND the borrowed chain has nothing currently
-    /// usable, but the highest-priority *expired* borrowed source still
-    /// carries a refresh token. Redeems it once and persists the result into
-    /// the app's own store, so the app now owns a token set going forward.
+    /// Borrow-and-self-refresh: runs only when the app owns no OAuth tokens at
+    /// all. Redeems a borrowed credential's refresh token once and persists
+    /// the result into the app's own store, so the app now owns a token set
+    /// going forward. Fires in two cases, both surfaced by
+    /// `selectBorrowedSource()` as the `refreshCandidate`:
     ///
-    /// This never fires while any borrowed source is still usable
-    /// (`selectBorrowedSource()` returns `.usable` first) - a still-valid
-    /// borrowed access token is served as-is via `currentToken()` and is
-    /// never rotated. Rotation happens at most once per borrowed credential:
-    /// exchanging its refresh token invalidates it server-side for whichever
-    /// app minted it (Claude Code / Claude Desktop), so that app would need
-    /// its own next login to recover. Accepted cost of borrowing as a
-    /// fallback rather than requiring the user to log in through this app
-    /// first.
+    /// - Proactive: the credential currently being served is within the
+    ///   refresh margin (near expiry) and renewable. The still-usable token
+    ///   keeps being served throughout (this never returns nil mid-window);
+    ///   the renewal just moves the app onto its own token set ahead of the
+    ///   lapse, closing the transient dead-cache window a purely reactive
+    ///   refresh would leave.
+    /// - Fallback: nothing on the borrowed chain is currently usable, but the
+    ///   highest-priority hard-expired source still carries a refresh token.
+    ///
+    /// A healthy served token (not near expiry) is never rotated, and a
+    /// dormant higher-priority source is never rotated while a live borrowed
+    /// token is being served. Rotation happens at most once per borrowed
+    /// credential: exchanging its refresh token invalidates it server-side for
+    /// whichever app minted it (Claude Code / Claude Desktop), so that app
+    /// would need its own next login to recover. Accepted cost of borrowing.
     private func attemptBorrowedRefresh() async -> Bool {
-        guard case .refreshable(let credential) = selectBorrowedSource(),
+        guard let credential = selectBorrowedSource().refreshCandidate,
               let refreshToken = credential.refreshToken,
               let expiresAt = credential.expiresAt
         else {
             return false
         }
         let synthesized = OAuthTokens(accessToken: credential.accessToken, refreshToken: refreshToken, expiresAt: expiresAt)
-        logger.info("Attempting one-time self-refresh of an expired borrowed token")
+        logger.info("Refreshing a borrowed token into an app-owned token set")
         return await performOAuthRefresh(synthesized)
     }
 
@@ -179,38 +207,47 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// system - an expired source is skipped in favor of a live one further
     /// down the chain rather than being returned as-is.
     private func readFromSources() -> String? {
-        guard case .usable(let credential) = selectBorrowedSource() else { return nil }
-        return credential.accessToken
+        selectBorrowedSource().usable?.accessToken
     }
 
-    /// Outcome of walking the borrowed-source chain in priority order.
-    private enum BorrowedSourceOutcome {
-        /// Safe to serve directly right now: not expired, or the source
-        /// doesn't carry expiry information at all.
-        case usable(BorrowedCredential)
-        /// Nothing on the chain is currently usable, but this is the
-        /// highest-priority expired source that still carries a refresh
-        /// token - a candidate for the one-time self-refresh fallback.
-        case refreshable(BorrowedCredential)
-        case none
+    /// The result of walking the borrowed-source chain: the credential safe
+    /// to serve right now (if any) and, separately, a credential eligible for
+    /// an OAuth refresh exchange.
+    private struct BorrowedSelection {
+        /// Safe to serve immediately: not expired, or carries no expiry info.
+        let usable: BorrowedCredential?
+        /// Eligible for a one-time refresh exchange - either the served
+        /// source when it is within the refresh margin (proactive, so the
+        /// served token never lapses to nil between this tick and the next),
+        /// or, when nothing is usable at all, the highest-priority
+        /// hard-expired source that still carries a refresh token (fallback).
+        /// Never a healthy source, and never a source other than the one
+        /// being served while a usable one exists.
+        let refreshCandidate: BorrowedCredential?
     }
 
-    /// Walks the borrowed sources in the same priority order as before
-    /// (`/usr/bin/security`, `.credentials.json`, Claude Desktop
-    /// `config.json`, direct Keychain read), skipping any credential whose
-    /// `expiresAt` is already in the past so a dead token never wins over a
-    /// live one further down the chain - this is the diagnosed bug fix: a
-    /// long-expired Keychain item ahead of a fresh Claude Desktop token used
-    /// to win by virtue of being first. Only when nothing on the chain is
-    /// currently usable does it fall back to `.refreshable`, so a live
-    /// borrowed token is always preferred over rotating a dormant source's
-    /// refresh token. The direct-Keychain last resort carries no expiry
-    /// information, so it is always `.usable` when present.
-    private func selectBorrowedSource() -> BorrowedSourceOutcome {
-        var refreshCandidate: BorrowedCredential?
+    /// Walks the borrowed sources in priority order (`/usr/bin/security`,
+    /// `.credentials.json`, Claude Desktop `config.json`, direct Keychain
+    /// read), skipping any credential whose `expiresAt` is already in the past
+    /// so a dead token never wins over a live one further down the chain -
+    /// this is the diagnosed bug fix: a long-expired Keychain item ahead of a
+    /// fresh Claude Desktop token used to win by virtue of being first.
+    ///
+    /// The served credential is the first non-expired source. Its refresh
+    /// candidate is that same served source, but only when it is within the
+    /// refresh margin and renewable - so a still-usable near-expiry token gets
+    /// proactively renewed on the tick without ever being dropped, while a
+    /// healthy token is left untouched. Only when nothing on the chain is
+    /// usable does it fall back to the highest-priority hard-expired renewable
+    /// source, so a dormant source's refresh token is never rotated while any
+    /// live borrowed token exists. The direct-Keychain last resort carries no
+    /// expiry information, so it is always usable (and never a refresh
+    /// candidate) when present.
+    private func selectBorrowedSource() -> BorrowedSelection {
+        var expiredRefreshCandidate: BorrowedCredential?
 
-        // Each source is read at its own call site below (not collected into
-        // a literal array first) so a hit on an earlier source short-circuits
+        // Each source is read at its own call site (not collected into a
+        // literal array first) so a hit on an earlier source short-circuits
         // before a later source's work runs - notably, config.json decryption
         // must not run when the security CLI or credentials file already
         // produced a usable credential.
@@ -221,31 +258,30 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
                 return credential
             }
             logger.info("Skipping expired borrowed token from \(label, privacy: .public)")
-            if refreshCandidate == nil, credential.refreshToken != nil {
-                refreshCandidate = credential
+            if expiredRefreshCandidate == nil, credential.refreshToken != nil {
+                expiredRefreshCandidate = credential
             }
             return nil
         }
 
-        if let credential = consider("/usr/bin/security", securityCLIReader.readCredential()) {
-            return .usable(credential)
-        }
-        if let credential = consider(".credentials.json", credentialsFileReader.readCredential()) {
-            return .usable(credential)
-        }
-        if let credential = consider("config.json", credentialFromConfigJSON()) {
-            return .usable(credential)
+        let served =
+            consider("/usr/bin/security", securityCLIReader.readCredential())
+            ?? consider(".credentials.json", credentialsFileReader.readCredential())
+            ?? consider("config.json", credentialFromConfigJSON())
+            ?? keychainReader(true).map { token in
+                logger.info("Token read from Keychain (silent)")
+                return BorrowedCredential(accessToken: token, refreshToken: nil, expiresAt: nil)
+            }
+
+        if let served {
+            // Proactively renew only the SERVED source, and only within
+            // margin, so a healthy token is never rotated and the served
+            // token never lapses to nil between this tick and the next.
+            let candidate = (served.needsRefresh(margin: 300) && served.refreshToken != nil) ? served : nil
+            return BorrowedSelection(usable: served, refreshCandidate: candidate)
         }
 
-        if let token = keychainReader(true) {
-            logger.info("Token read from Keychain (silent)")
-            return .usable(BorrowedCredential(accessToken: token, refreshToken: nil, expiresAt: nil))
-        }
-
-        if let refreshCandidate {
-            return .refreshable(refreshCandidate)
-        }
-        return .none
+        return BorrowedSelection(usable: nil, refreshCandidate: expiredRefreshCandidate)
     }
 
     /// Re-reads the token from its sources and updates the cache when it
