@@ -571,11 +571,13 @@ struct PacingSectionView: View {
     // MARK: - Sliders + previews
 
     private func percentSlider(label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        // Plain HStack, not LabeledContent: the slider fills the whole row
-        // between the fixed label and the fixed value column.
+        // Plain HStack + labelsHidden: a Slider inside a grouped Form reserves
+        // the form's implicit label column even with no label, squeezing the
+        // track to half the row. labelsHidden() releases it to fill the row.
         HStack(spacing: 12) {
             Text(label)
             Slider(value: value, in: range, step: 5)
+                .labelsHidden()
                 .tint(DS.Pastel.green)
                 .frame(maxWidth: .infinity)
             Text("\(Int(value.wrappedValue))%")
