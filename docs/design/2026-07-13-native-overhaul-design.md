@@ -81,9 +81,43 @@ header); its session-scanning half goes with the overlay.
 
 ## 2. Design system
 
-RaiDrive's conventions, codified as the single `DS` namespace (replacing the three
-existing systems). The design is 100% system-semantic; no hex colors, automatic
-dark/light.
+> **REVISED 2026-07-13 (owner design review):** the original "system colors only,
+> no hex" rule is superseded. The owner wants a specific **pastel palette** and a
+> **solid, opaque, dark** look (RaiDrive-like, not translucent). Hex is now allowed
+> **only** in the one `DS` palette definition; every view still references `DS`
+> tokens / `RiskZone` / `PacingZone`, never raw hex. The app is **dark-first**
+> (fixed dark panels); only the **menu bar** adapts to the wallpaper.
+
+### Pastel palette (single source of truth in `DS`)
+
+| Token | Pastel (dark bg) | Deepened (light bg, menu-bar only) |
+|---|---|---|
+| risk OK (green) | `#86D6A0` | `#4FAE74` |
+| risk warning (amber) | `#F2C288` | `#D99A4E` |
+| risk critical (coral) | `#EF9A8D` | `#D46A58` |
+| info / on-track (blue) | `#93B4EE` | `#5B82D6` |
+
+Surfaces (opaque, no material/vibrancy, no glow): window/popover base `#161719`,
+card/elevated `#1A1B1E`, hairline border `#2C2E33`, gauge track `#26282D`. Text
+keeps SwiftUI `.primary` / `.secondary` / `.tertiary` (resolve white-ish on the
+dark surfaces). `RiskZone.color`/`.nsColor` and `PacingZone.semanticColor` return
+these pastels (chill→green, onTrack→blue, warning→amber, hot→coral).
+
+### Menu bar rendering — option B (adaptive text + colored dot)
+
+The status-item text must stay legible over any wallpaper. Rendering:
+- **Text** uses the menu bar's effective appearance: near-white (`#F4F4F6`) on a
+  dark menu bar, near-black (`#1C1C1E`) on a light one. `MenuBarRenderer.RenderData`
+  gains `menuBarIsDark: Bool`; `StatusBarController` reads
+  `statusItem.button.effectiveAppearance` and re-renders on appearance change.
+- **Risk color** rides a small filled dot before each metric (pastel on a dark
+  bar, the deepened variant on a light bar). `colorMode = .risk` shows dots;
+  `colorMode = .monochrome` shows none (adaptive text only).
+
+Everything below still holds (SF Symbols hierarchical, `.rounded` only for the app
+name + hero numbers, `.monospacedDigit()` on all numerics, 14pt inset, `Divider()`
+separation in the popover, `RoundedRectangle` cards) — recolored to the palette
+above and made opaque.
 
 - **Color by role, never by theme.** Risk drives color: ok = `.green`, warning =
   `.orange`, critical = `.red`, active/info = `.blue`. Text hierarchy `.primary` /
