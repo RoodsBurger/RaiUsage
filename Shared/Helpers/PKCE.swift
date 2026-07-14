@@ -40,10 +40,7 @@ enum PKCE {
 enum OAuthURLBuilder {
     /// Builds the authorization URL with all required OAuth parameters.
     static func authorizeURL(redirectURI: String, challenge: String, state: String) -> URL {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "claude.ai"
-        components.path = "/oauth/authorize"
+        var components = URLComponents(string: OAuthConstants.authorizeURL)!
 
         components.queryItems = [
             URLQueryItem(name: "code", value: "true"),
@@ -72,7 +69,7 @@ enum OAuthURLBuilder {
         if input.contains("#") {
             let parts = input.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
             if parts.count == 2 {
-                let code = String(parts[0]).trimmingCharacters(in: CharacterSet(charactersIn: "?&"))
+                let code = String(parts[0])
                 let state = String(parts[1])
                 if !code.isEmpty && !state.isEmpty {
                     return (code: code, state: state)
