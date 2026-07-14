@@ -28,4 +28,12 @@ protocol TokenProviderProtocol: Sendable {
     /// Signs out of the app-owned OAuth tokens and clears the cache, so the
     /// next `currentToken()` falls back to the borrowed source chain.
     func disconnectOAuth()
+    /// Persists tokens obtained from a fresh OAuth login (`OAuthService.beginLogin`
+    /// or `completeManualLogin`) into the app-owned store and caches the access
+    /// token so the next `currentToken()` read returns it immediately, without
+    /// waiting on the borrowed-source cache to be invalidated.
+    func completeOAuthLogin(_ tokens: OAuthTokens) throws
+    /// Whether the app currently owns an OAuth token set (a durable "Sign in
+    /// with Claude" login, as opposed to a borrowed Claude Code/Desktop token).
+    func hasOwnOAuthLogin() -> Bool
 }

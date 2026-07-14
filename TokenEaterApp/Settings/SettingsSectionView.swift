@@ -12,6 +12,10 @@ struct SettingsSectionView: View {
     /// Local mirror of the status poll interval for the slider (seconds).
     /// @State + .onChange instead of Binding(get:set:), per the SwiftUI rules.
     @State private var statusPollIntervalSeconds: Double
+    /// Owns the "Sign in with Claude" own-OAuth-login flow for this card.
+    /// A child view's `@StateObject` (not the App struct), so it is allowed
+    /// to persist across this view's re-renders per the SwiftUI rules.
+    @StateObject private var connectFlow = OnboardingViewModel()
 
     init(initialStatusInterval: Int) {
         _statusPollIntervalSeconds = State(initialValue: Double(initialStatusInterval))
@@ -76,6 +80,10 @@ struct SettingsSectionView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(result.success ? .green : .red)
                     }
+
+                    Divider().opacity(0.12)
+
+                    signInWithClaudeBlock
                 }
             }
 
@@ -260,6 +268,7 @@ struct SettingsSectionView: View {
         .padding(24)
         .onAppear {
             Task { await settingsStore.refreshNotificationStatus() }
+            Task { await connectFlow.refreshConnectedAccountEmail() }
         }
         .onChange(of: statusPollIntervalSeconds) { _, secs in
             let v = Int(secs)
@@ -267,6 +276,12 @@ struct SettingsSectionView: View {
         }
         .onChange(of: settingsStore.statusPollInterval) { _, v in
             if Int(statusPollIntervalSeconds) != v { statusPollIntervalSeconds = Double(v) }
+        }
+        .onChange(of: connectFlow.oauthSignInStatus) { _, newStatus in
+            guard case .success = newStatus else { return }
+            usageStore.proxyConfig = settingsStore.proxyConfig
+            usageStore.handleTokenChange()
+            usageStore.reloadConfig(thresholds: settingsStore.thresholds)
         }
     }
 
@@ -295,6 +310,155 @@ struct SettingsSectionView: View {
             } else {
                 importMessage = result.message
                 importSuccess = false
+            }
+        }
+    }
+
+    private func signOutOfClaude() {
+        connectFlow.signOut()
+        usageStore.handleTokenChange()
+        usageStore.reloadConfig(thresholds: settingsStore.thresholds)
+    }
+
+    // MARK: - Sign in with Claude
+
+    /// Durable own-login management, below the existing borrowed-token status
+    /// row: connected state (account email + Sign out) when the app owns an
+    /// OAuth login, otherwise the primary "Sign in with Claude" CTA plus the
+    /// labeled secondary "Use Claude Code's session" borrow path and the
+    /// browser-waiting / manual-paste / error states.
+    @ViewBuilder
+    private var signInWithClaudeBlock: some View {
+        if connectFlow.isSignedInWithClaude {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DS.Palette.semanticSuccess)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "connect.signin.success"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DS.Palette.textPrimary)
+                    if let email = connectFlow.connectedAccountEmail {
+                        Text(email)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(DS.Palette.textSecondary)
+                    }
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    signOutOfClaude()
+                } label: {
+                    Text(String(localized: "connect.signin.signout"))
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                switch connectFlow.oauthSignInStatus {
+                case .idle:
+                    HStack(spacing: 10) {
+                        Button {
+                            connectFlow.signInWithClaude()
+                        } label: {
+                            Label(String(localized: "connect.signin.title"), systemImage: "person.badge.key.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(DS.Palette.accentSettings)
+                        .controlSize(.small)
+
+                        Button(String(localized: "connect.secondary.title")) {
+                            connectAutoDetect()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Text(String(localized: "connect.secondary.subtitle"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(DS.Palette.textTertiary)
+
+                case .browserOpenedWaiting:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "connect.signin.waiting"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(DS.Palette.textSecondary)
+                    }
+                    HStack(spacing: 14) {
+                        Button(String(localized: "connect.signin.manualpaste.link")) {
+                            connectFlow.switchToManualPaste()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Palette.accentHistory)
+
+                        Button(String(localized: "connect.signin.cancel")) {
+                            connectFlow.cancelSignIn()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Palette.textTertiary)
+                    }
+
+                case .manualCodePaste:
+                    Text(String(localized: "connect.signin.manualpaste.prompt"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Palette.textSecondary)
+                    TextField(String(localized: "connect.signin.manualpaste.placeholder"), text: $connectFlow.manualPasteCode)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                    HStack(spacing: 14) {
+                        Button(String(localized: "connect.signin.manualpaste.submit")) {
+                            connectFlow.submitManualPasteCode()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(DS.Palette.accentSettings)
+                        .controlSize(.small)
+                        .disabled(connectFlow.manualPasteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        Button(String(localized: "connect.signin.cancel")) {
+                            connectFlow.cancelSignIn()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Palette.textTertiary)
+                    }
+
+                case .success:
+                    Label(String(localized: "connect.signin.success"), systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DS.Palette.semanticSuccess)
+
+                case .failed(let error):
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label {
+                            Text(OAuthErrorFormatter.message(for: error))
+                                .font(.system(size: 11))
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(DS.Palette.semanticError)
+                        HStack(spacing: 14) {
+                            Button(String(localized: "connect.signin.title")) {
+                                connectFlow.signInWithClaude()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(DS.Palette.accentSettings)
+                            .controlSize(.small)
+
+                            Button(String(localized: "connect.signin.manualpaste.link")) {
+                                connectFlow.switchToManualPaste()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11))
+                            .foregroundStyle(DS.Palette.accentHistory)
+                        }
+                    }
+                }
             }
         }
     }

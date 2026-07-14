@@ -12,6 +12,13 @@ final class MockTokenProvider: TokenProviderProtocol, @unchecked Sendable {
     var disconnectOAuthCallCount = 0
     var refreshOAuthTokenIfNeededCallCount = 0
     var handleUnauthorizedOAuthCallCount = 0
+    var completeOAuthLoginCallCount = 0
+    var lastCompletedOAuthLogin: OAuthTokens?
+    /// When set, `completeOAuthLogin` throws this instead of recording the tokens.
+    var completeOAuthLoginError: Error?
+    /// What `hasOwnOAuthLogin()` returns. Tests flip this to simulate a
+    /// durable "Sign in with Claude" login vs. a borrowed-only session.
+    var _hasOwnOAuthLogin = false
     /// What `refreshTokenIfChanged()` returns. Tests flip this to simulate an
     /// account swap detected on the Keychain.
     var tokenDidChange = false
@@ -58,5 +65,16 @@ final class MockTokenProvider: TokenProviderProtocol, @unchecked Sendable {
 
     func disconnectOAuth() {
         disconnectOAuthCallCount += 1
+    }
+
+    func completeOAuthLogin(_ tokens: OAuthTokens) throws {
+        completeOAuthLoginCallCount += 1
+        if let error = completeOAuthLoginError { throw error }
+        lastCompletedOAuthLogin = tokens
+        token = tokens.accessToken
+    }
+
+    func hasOwnOAuthLogin() -> Bool {
+        _hasOwnOAuthLogin
     }
 }

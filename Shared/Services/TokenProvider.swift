@@ -350,6 +350,22 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         logger.info("OAuth disconnected - falling back to borrowed token sources")
     }
 
+    /// Saves tokens from a just-completed "Sign in with Claude" login and
+    /// updates the in-memory cache so the access token is available
+    /// immediately, ahead of any borrowed-source cache invalidation. A save
+    /// failure (e.g. a Keychain error) leaves the cache untouched and
+    /// propagates to the caller so the Connect UI can surface it.
+    func completeOAuthLogin(_ tokens: OAuthTokens) throws {
+        try oauthTokenStore.save(tokens)
+        cachedToken = tokens.accessToken
+        logger.info("OAuth login completed - tokens saved to app-owned store")
+    }
+
+    /// Whether the app-owned OAuth store currently holds a token set.
+    func hasOwnOAuthLogin() -> Bool {
+        oauthTokenStore.load() != nil
+    }
+
     // MARK: - One-Time OAuth Import
 
     /// Imports a pre-minted OAuth token file dropped at `fileURL` (same JSON

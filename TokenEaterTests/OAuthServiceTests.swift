@@ -465,4 +465,45 @@ struct MockOAuthServiceTests {
         #expect(mock.lastRefreshTokens == oldTokens)
         #expect(captured == .success(newTokens))
     }
+
+    @Test("deferLoginCompletion stashes beginLogin's completion instead of calling it")
+    func deferLoginCompletionStashesBeginLogin() {
+        let mock = MockOAuthService()
+        mock.deferLoginCompletion = true
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: .distantFuture)
+        mock.stubbedLoginResult = .success(tokens)
+
+        var captured: Result<OAuthTokens, OAuthError>?
+        mock.beginLogin { captured = $0 }
+
+        #expect(mock.beginLoginCallCount == 1)
+        #expect(captured == nil)
+
+        mock.resolvePendingLogin(.success(tokens))
+
+        #expect(captured == .success(tokens))
+    }
+
+    @Test("deferLoginCompletion stashes completeManualLogin's completion instead of calling it")
+    func deferLoginCompletionStashesManualLogin() {
+        let mock = MockOAuthService()
+        mock.deferLoginCompletion = true
+
+        var captured: Result<OAuthTokens, OAuthError>?
+        mock.completeManualLogin(pasted: "code#state") { captured = $0 }
+
+        #expect(mock.completeManualLoginCallCount == 1)
+        #expect(mock.lastManualPaste == "code#state")
+        #expect(captured == nil)
+
+        mock.resolvePendingLogin(.failure(.malformedCallback))
+
+        #expect(captured == .failure(.malformedCallback))
+    }
+
+    @Test("resolvePendingLogin is a no-op when nothing is pending")
+    func resolvePendingLoginNoOpWhenEmpty() {
+        let mock = MockOAuthService()
+        mock.resolvePendingLogin(.failure(.cancelled)) // should not crash
+    }
 }

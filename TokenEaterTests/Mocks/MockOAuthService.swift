@@ -19,15 +19,38 @@ final class MockOAuthService: OAuthServiceProtocol, @unchecked Sendable {
     /// inline-only completion.
     var deliverRefreshAsynchronously = false
 
+    /// When true, `beginLogin`/`completeManualLogin` stash their completion
+    /// instead of calling it immediately, so tests can assert a caller's
+    /// synchronous pre-completion state (e.g. "browser opened, waiting") before
+    /// resolving the login via `resolvePendingLogin(_:)`.
+    var deferLoginCompletion = false
+    private(set) var pendingLoginCompletion: ((Result<OAuthTokens, OAuthError>) -> Void)?
+
     func beginLogin(completion: @escaping (Result<OAuthTokens, OAuthError>) -> Void) {
         beginLoginCallCount += 1
-        completion(stubbedLoginResult)
+        if deferLoginCompletion {
+            pendingLoginCompletion = completion
+        } else {
+            completion(stubbedLoginResult)
+        }
     }
 
     func completeManualLogin(pasted: String, completion: @escaping (Result<OAuthTokens, OAuthError>) -> Void) {
         completeManualLoginCallCount += 1
         lastManualPaste = pasted
-        completion(stubbedManualLoginResult)
+        if deferLoginCompletion {
+            pendingLoginCompletion = completion
+        } else {
+            completion(stubbedManualLoginResult)
+        }
+    }
+
+    /// Resolves a completion stashed by `deferLoginCompletion`. No-op if
+    /// nothing is pending.
+    func resolvePendingLogin(_ result: Result<OAuthTokens, OAuthError>) {
+        let completion = pendingLoginCompletion
+        pendingLoginCompletion = nil
+        completion?(result)
     }
 
     func cancelLogin() {

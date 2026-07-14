@@ -91,6 +91,26 @@
 "connect.method.oauth" = "Claude Code (auto)";
 "connect.noclaudecode" = "Claude Code not detected. Install it and sign in first.";
 
+/* Connect - Sign in with Claude (own OAuth login) */
+"connect.signin.title" = "Sign in with Claude";
+"connect.signin.waiting" = "Waiting for browser authorization…";
+"connect.signin.manualpaste.link" = "Paste code manually instead";
+"connect.signin.manualpaste.prompt" = "Paste the code shown in the browser tab";
+"connect.signin.manualpaste.placeholder" = "code#state";
+"connect.signin.manualpaste.submit" = "Submit code";
+"connect.signin.cancel" = "Cancel";
+"connect.signin.success" = "Signed in with Claude";
+"connect.signin.signout" = "Sign out";
+"connect.signin.connectedas" = "Signed in as %@";
+"connect.secondary.title" = "Use Claude Code's session";
+"connect.secondary.subtitle" = "Borrow the token Claude Code already has signed in on this Mac";
+"connect.oauth.error.statemismatch" = "Sign-in didn't match - please try again.";
+"connect.oauth.error.malformedcallback" = "Couldn't read the authorization response. Try again or paste the code manually.";
+"connect.oauth.error.exchangefailed" = "Sign-in failed (status %d). Please try again.";
+"connect.oauth.error.refreshfailed" = "Couldn't refresh your session (status %d). Please sign in again.";
+"connect.oauth.error.cancelled" = "Sign-in was cancelled.";
+"connect.oauth.error.listenerfailed" = "Couldn't open the local sign-in listener. Try pasting the code manually.";
+
 /* Guide */
 "guide.title" = "Setup Guide";
 "guide.oauth.title" = "Claude Code";

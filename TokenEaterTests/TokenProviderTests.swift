@@ -735,6 +735,48 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "security-cli-token")
     }
 
+    // MARK: - completeOAuthLogin / hasOwnOAuthLogin (Sign in with Claude)
+
+    @Test("completeOAuthLogin saves tokens to the store and caches the access token")
+    func completeOAuthLoginSavesAndCaches() throws {
+        let (provider, _, _, _, _, oauthStore, _) = makeSUT()
+        let tokens = OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600))
+
+        try provider.completeOAuthLogin(tokens)
+
+        #expect(oauthStore.load() == tokens)
+        #expect(provider.currentToken() == "new-access")
+    }
+
+    @Test("completeOAuthLogin propagates a store save failure and leaves the cache untouched")
+    func completeOAuthLoginPropagatesSaveFailure() {
+        let (provider, _, _, _, _, oauthStore, _) = makeSUT(securityCLIToken: "security-cli-token")
+        struct SaveError: Error {}
+        oauthStore.saveError = SaveError()
+        let tokens = OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600))
+
+        #expect(throws: SaveError.self) {
+            try provider.completeOAuthLogin(tokens)
+        }
+        #expect(oauthStore.load() == nil)
+        // Cache is untouched - the next read still falls through to the
+        // borrowed chain rather than serving the failed-to-persist token.
+        #expect(provider.currentToken() == "security-cli-token")
+    }
+
+    @Test("hasOwnOAuthLogin is false when the app-owned store is empty")
+    func hasOwnOAuthLoginFalseWhenEmpty() {
+        let (provider, _, _, _, _, _, _) = makeSUT()
+        #expect(provider.hasOwnOAuthLogin() == false)
+    }
+
+    @Test("hasOwnOAuthLogin is true once the app-owned store holds tokens")
+    func hasOwnOAuthLoginTrueWhenPresent() {
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date().addingTimeInterval(3600))
+        let (provider, _, _, _, _, _, _) = makeSUT(oauthTokens: tokens)
+        #expect(provider.hasOwnOAuthLogin() == true)
+    }
+
     // MARK: - One-time OAuth import
 
     @Test("one-time import reads a pre-minted token file, saves it, and deletes the file")
