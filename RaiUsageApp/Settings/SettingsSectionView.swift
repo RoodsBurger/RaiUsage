@@ -344,8 +344,6 @@ struct SettingsSectionView: View {
             }
         } header: {
             Text(String(localized: "sidebar.serviceStatus"))
-        } footer: {
-            Text(String(localized: "sidebar.serviceStatus.subtitle"))
         }
     }
 
