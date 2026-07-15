@@ -402,19 +402,31 @@ private struct PopoverActivitySourceSelector: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
+                let active = activityStore.sourceFilter != nil
+                let accent = active ? DS.Pastel.blue : Color.secondary
+                HStack(spacing: 5) {
                     Text(currentLabel)
                         .font(.caption)
+                        .fontWeight(.medium)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
+                    Image(systemName: "chevron.down")
                         .font(.system(size: 7, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(accent)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(active ? DS.Pastel.blue.opacity(0.10) : DS.Pastel.card)
+                        .overlay(Capsule().stroke(active ? DS.Pastel.blue.opacity(0.35) : DS.Pastel.border, lineWidth: 0.8))
+                )
+                .contentShape(Capsule())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .animation(DS.Motion.easeInOut, value: activityStore.sourceFilter)
         }
     }
 

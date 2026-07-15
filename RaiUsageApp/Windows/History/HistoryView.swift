@@ -141,12 +141,12 @@ struct HistoryView: View {
                 breakdownLine(label: "history.hero.active", value: total)
                 breakdownLine(label: "history.hero.cached", value: cached)
                 breakdownLine(label: "history.hero.cacheHit", percent: cacheHit)
+                if let delta {
+                    deltaBadge(delta, previous: store.summary.previousPeriodActive)
+                        .padding(.top, 2)
+                }
             }
             .font(DS.Typography.label)
-
-            if let delta {
-                deltaBadge(delta, previous: store.summary.previousPeriodActive)
-            }
 
             Spacer(minLength: DS.Spacing.sm)
 
@@ -325,25 +325,28 @@ struct HistoryView: View {
                 }
             }
         } label: {
+            let active = store.sourceFilter != nil
+            let accent = active ? DS.Pastel.blue : Color.secondary
             HStack(spacing: 6) {
                 Image(systemName: "server.rack")
                     .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(accent)
                 Text(currentSourceLabel)
                     .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
+                Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(accent)
             }
-            .foregroundStyle(.primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(DS.Pastel.card)
+                    .fill(active ? DS.Pastel.blue.opacity(0.10) : DS.Pastel.card)
                     .overlay(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(DS.Pastel.border, lineWidth: 1)
+                            .stroke(active ? DS.Pastel.blue.opacity(0.35) : DS.Pastel.border, lineWidth: 1)
                     )
             )
             .contentShape(Rectangle())
@@ -351,6 +354,7 @@ struct HistoryView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .animation(DS.Motion.easeInOut, value: store.sourceFilter)
     }
 
     @ViewBuilder
