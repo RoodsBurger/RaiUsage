@@ -37,6 +37,21 @@ func settingsHeader(_ title: String, subtitle: String? = nil) -> some View {
     settingsHeader(title, subtitle: subtitle) { EmptyView() }
 }
 
+// MARK: - Settings helper caption
+
+extension View {
+    /// Explicitly-styled settings helper caption, used in place of a
+    /// Section `footer:` (whose rendering varies across macOS versions)
+    /// so all helper text looks identical everywhere.
+    func settingsHelperCaption() -> some View {
+        self.font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+    }
+}
+
 // MARK: - Click Chip
 
 /// Generic click-to-toggle chip. Two visual styles:

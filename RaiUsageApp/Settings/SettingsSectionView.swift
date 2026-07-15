@@ -173,11 +173,7 @@ struct SettingsSectionView: View {
             // default footer rendering varies across macOS versions and looked
             // inconsistent; this keeps one appearance everywhere.
             Text(String(localized: "settings.remote.footer"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 2)
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.remote.title"))
         }
@@ -291,10 +287,11 @@ struct SettingsSectionView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Text(String(localized: "settings.proxy.footer"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.tab.proxy"))
-        } footer: {
-            Text(String(localized: "settings.proxy.footer"))
         }
     }
 
@@ -308,18 +305,18 @@ struct SettingsSectionView: View {
                     value: formatInterval(settingsStore.refreshInterval)
                 )
             }
-        } header: {
-            Text(String(localized: "settings.refresh.title"))
-        } footer: {
+
             if settingsStore.refreshInterval < 300 {
                 Label {
                     Text(String(localized: "settings.refresh.warning"))
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
-                .font(.caption)
                 .foregroundStyle(DS.Pastel.amber)
+                .settingsHelperCaption()
             }
+        } header: {
+            Text(String(localized: "settings.refresh.title"))
         }
     }
 

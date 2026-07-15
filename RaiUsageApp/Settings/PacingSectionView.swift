@@ -122,10 +122,11 @@ struct PacingSectionView: View {
                 Spacer()
             }
             .padding(.vertical, 4)
+
+            Text(String(localized: "settings.thresholds.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.thresholds"))
-        } footer: {
-            Text(String(localized: "settings.thresholds.hint"))
         }
     }
 
@@ -135,10 +136,11 @@ struct PacingSectionView: View {
         Section {
             percentSlider(label: String(localized: "settings.pacing.margin.value"), value: $marginSlider, range: 5...30)
             pacingZonesPreview
+
+            Text(String(localized: "settings.pacing.margin.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.pacing.margin"))
-        } footer: {
-            Text(String(localized: "settings.pacing.margin.hint"))
         }
     }
 
@@ -200,8 +202,9 @@ struct PacingSectionView: View {
                     }
                 }
             }
-        } footer: {
+
             Text(String(localized: "settings.pacing.workweek.hint"))
+                .settingsHelperCaption()
         }
     }
 

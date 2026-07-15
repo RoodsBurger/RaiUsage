@@ -142,13 +142,14 @@ struct NotificationsSectionView: View {
                 .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.notifications.recovery"), isOn: $settingsStore.notification.sendRecovery)
                 .tint(DS.Pastel.green)
-        } header: {
-            Text(String(localized: "settings.notifications.group.usage"))
-        } footer: {
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(localized: "settings.notifications.group.usage.hint"))
                 Text(String(localized: "settings.notifications.recovery.hint"))
             }
+            .settingsHelperCaption()
+        } header: {
+            Text(String(localized: "settings.notifications.group.usage"))
         }
     }
 
@@ -160,10 +161,11 @@ struct NotificationsSectionView: View {
                 .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.notifications.pacing.warning"), isOn: $settingsStore.notification.pacingWarning)
                 .tint(DS.Pastel.green)
+
+            Text(String(localized: "settings.notifications.group.pacing.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.notifications.group.pacing"))
-        } footer: {
-            Text(String(localized: "settings.notifications.group.pacing.hint"))
         }
     }
 
@@ -185,10 +187,11 @@ struct NotificationsSectionView: View {
                 options: [30, 60, 120, 180, 360],
                 enabled: settingsStore.notifResetReminderWeekly
             )
+
+            Text(String(localized: "settings.notifications.group.reset.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.notifications.group.reset"))
-        } footer: {
-            Text(String(localized: "settings.notifications.group.reset.hint"))
         }
     }
 
@@ -215,13 +218,14 @@ struct NotificationsSectionView: View {
         Section {
             Toggle(String(localized: "settings.notifications.extra"), isOn: $settingsStore.notification.extraCredits)
                 .tint(DS.Pastel.green)
+
+            Text(String(localized: "settings.notifications.group.extra.hint"))
+                .settingsHelperCaption()
         } header: {
             // Enterprise renames the pool to "Organization usage".
             Text(usageStore.planType == .enterprise
                  ? String(localized: "metric.orgUsage")
                  : String(localized: "settings.notifications.group.extra"))
-        } footer: {
-            Text(String(localized: "settings.notifications.group.extra.hint"))
         }
     }
 
@@ -235,10 +239,11 @@ struct NotificationsSectionView: View {
                 .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.notifications.status.restored"), isOn: $settingsStore.notification.vendorRestored)
                 .tint(DS.Pastel.green)
+
+            Text(String(localized: "settings.notifications.group.health.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.notifications.group.health"))
-        } footer: {
-            Text(String(localized: "settings.notifications.group.health.hint"))
         }
     }
 }

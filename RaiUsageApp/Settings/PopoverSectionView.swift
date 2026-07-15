@@ -89,10 +89,11 @@ struct PopoverSectionView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .frame(height: rowListHeight)
+
+            Text(String(localized: "settings.popover.metrics.footer"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.popover.metrics.header"))
-        } footer: {
-            Text(String(localized: "settings.popover.metrics.footer"))
         }
     }
 
@@ -160,10 +161,11 @@ struct PopoverSectionView: View {
                 .tint(DS.Pastel.green)
             Toggle(String(localized: "settings.popover.showTimestamp"), isOn: $settingsStore.display.popoverConfig.showTimestamp)
                 .tint(DS.Pastel.green)
+
+            Text(String(localized: "settings.popover.sections.footer"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.popover.sections.header"))
-        } footer: {
-            Text(String(localized: "settings.popover.sections.footer"))
         }
     }
 }

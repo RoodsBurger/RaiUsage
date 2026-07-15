@@ -128,10 +128,11 @@ struct MenuBarSectionView: View {
             .frame(height: rowListHeight)
 
             addMetricMenu
+
+            Text(String(localized: "settings.metrics.pinned.footer"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.metrics.pinned"))
-        } footer: {
-            Text(String(localized: "settings.metrics.pinned.footer"))
         }
     }
 
@@ -296,10 +297,11 @@ struct MenuBarSectionView: View {
             }
             Toggle(String(localized: "settings.menubar.fixedWidth"), isOn: $settingsStore.display.menuBarConfig.fixedWidth)
                 .tint(DS.Pastel.green)
+
+            Text(String(localized: "settings.menubar.fixedWidth.hint"))
+                .settingsHelperCaption()
         } header: {
             Text(String(localized: "settings.menubar.appearance"))
-        } footer: {
-            Text(String(localized: "settings.menubar.fixedWidth.hint"))
         }
     }
 }
