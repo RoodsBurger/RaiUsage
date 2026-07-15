@@ -169,20 +169,17 @@ struct SettingsSectionView: View {
 
             addRemoteInstanceRow
 
-            if !remoteInstancesStore.instances.isEmpty {
-                Button {
-                    remoteInstancesStore.syncAll()
-                } label: {
-                    Label(String(localized: "settings.remote.syncAll"), systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            // Explicitly-styled helper instead of a Section `footer:` - the
+            // default footer rendering varies across macOS versions and looked
+            // inconsistent; this keeps one appearance everywhere.
+            Text(String(localized: "settings.remote.footer"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 2)
-            }
         } header: {
             Text(String(localized: "settings.remote.title"))
-        } footer: {
-            Text(String(localized: "settings.remote.footer"))
         }
     }
 

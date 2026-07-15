@@ -712,11 +712,15 @@ private struct PopoverUpdateHintRow: View {
 private struct PopoverFooterToolbar: View {
     @EnvironmentObject private var usageStore: UsageStore
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
 
     var body: some View {
         HStack {
+            // Refresh also pulls every configured remote instance, so a manual
+            // refresh is the single "sync all" gesture (no separate button).
             toolbarButton(system: "arrow.clockwise", help: "contextmenu.refresh", disabled: usageStore.isLoading) {
                 Task { await usageStore.refresh(force: true) }
+                remoteInstancesStore.syncAll()
             }
             if settingsStore.display.popoverConfig.showTimestamp {
                 PopoverTimestampLabel()
