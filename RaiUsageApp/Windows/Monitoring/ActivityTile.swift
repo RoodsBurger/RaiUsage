@@ -21,6 +21,10 @@ struct ActivityTileDescriptor {
     /// Per-model tint for the value + sparkline. Nil falls back to the neutral
     /// activity blue.
     var tint: Color? = nil
+    /// Heaviest day in the window, shown as the expanded "PEAK" line to match
+    /// `MetricTile`'s footer rhythm.
+    var peakDay: Date? = nil
+    var peakTokens: Int? = nil
 }
 
 /// Token tile: a big history-derived count ("14M tokens") sharing `MetricTile`'s
@@ -80,8 +84,6 @@ struct ActivityTile: View {
                 }
             }
 
-            Spacer(minLength: 0)
-
             Group {
                 if let subtitle = descriptor.subtitle {
                     Text(subtitle)
@@ -106,6 +108,10 @@ struct ActivityTile: View {
             }
             .lineLimit(1)
 
+            // Push the sparkline block to the bottom so it lines up with the
+            // other grid tiles' sparklines across the row.
+            Spacer(minLength: 0)
+
             if expanded, let sparkline = descriptor.sparkline {
                 Rectangle()
                     .fill(DS.Pastel.border)
@@ -116,6 +122,23 @@ struct ActivityTile: View {
                     .tracking(1.2)
                     .foregroundStyle(.secondary)
                 sparklineBars(sparkline, color: accent)
+                if let day = descriptor.peakDay, let peak = descriptor.peakTokens {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("PEAK")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(.tertiary)
+                        HStack(spacing: 4) {
+                            Text(day.formatted(.dateTime.weekday(.abbreviated)))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.primary)
+                            Text(TokenFormatter.compact(peak))
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                }
             }
         }
         .padding(DS.Spacing.md)

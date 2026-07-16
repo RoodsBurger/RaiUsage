@@ -58,6 +58,9 @@ struct MetricTile: View {
             VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 frontContent(color: color, clamped: clamped)
                 if expanded {
+                    // Push the sparkline block to the bottom so it aligns with
+                    // the other grid tiles' sparklines across the row.
+                    Spacer(minLength: DS.Spacing.xs)
                     insightsRow(color: color)
                 }
             }
