@@ -405,6 +405,8 @@
 "history.empty.filter.model" = "No %@ usage in the last %@";
 "history.chip.cacheHit" = "Cache hit";
 "history.chip.cacheHit.sub" = "%@ from cache";
+"history.chip.cached" = "Cached";
+"history.chip.active" = "Active";
 "history.chip.heaviest" = "Heaviest";
 "history.chip.heaviest.sub" = "%@ tokens";
 "history.chip.topProject" = "Top project";

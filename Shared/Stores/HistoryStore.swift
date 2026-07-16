@@ -193,6 +193,14 @@ final class HistoryStore: ObservableObject {
             .max(by: { $0.value < $1.value })
             .map { (path: $0.key, tokens: $0.value) }
 
+        // Ranked top-5 lists for the expandable footer chips.
+        let topProjects = projectTotals.sorted { $0.value > $1.value }
+            .prefix(5).map { (path: $0.key, tokens: $0.value) }
+        let topModels = modelTotals.sorted { $0.value > $1.value }
+            .prefix(5).map { (kind: $0.key, tokens: $0.value) }
+        let heaviestDays = filtered.sorted { $0.totalActive > $1.totalActive }
+            .prefix(5).filter { $0.totalActive > 0 }
+
         // The previous-period delta only makes sense when `filter == .all`.
         // Filtered totals don't have an apples-to-apples previous comparison
         // (we'd have to refetch with the same filter), so we zero it out for
@@ -206,7 +214,10 @@ final class HistoryStore: ObservableObject {
             heaviestBucket: heaviest,
             topModel: topModel,
             topProject: topProject,
-            sessionsCount: sessionsCount
+            sessionsCount: sessionsCount,
+            topProjects: Array(topProjects),
+            topModels: Array(topModels),
+            heaviestDays: Array(heaviestDays)
         )
     }
 

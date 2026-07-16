@@ -18,6 +18,9 @@ struct HistoryView: View {
     @EnvironmentObject private var remoteStore: RemoteInstancesStore
     @State private var hoveredBucket: HistoryBucket?
     @State private var chartReveal: Double = 1.0
+    /// Shared flag: tapping any footer chip expands them all into their top-5
+    /// lists in unison (mirrors the Monitoring grid's expand behaviour).
+    @State private var chipsExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Estimated cost is enterprise-only and opt-in. When false the view is
@@ -847,61 +850,136 @@ struct HistoryView: View {
     // MARK: - Footer chips
 
     private var footerChips: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             chipCard(
                 label: "history.chip.cacheHit",
                 value: formatPercent(store.summary.cacheHitRate * 100),
-                sub: String(format: String(localized: "history.chip.cacheHit.sub"), TokenFormatter.compact(store.summary.totalCached))
+                sub: String(format: String(localized: "history.chip.cacheHit.sub"), TokenFormatter.compact(store.summary.totalCached)),
+                rows: cacheHitRows
             )
             chipCard(
                 label: "history.chip.heaviest",
                 value: heaviestLabel,
-                sub: heaviestSub
+                sub: heaviestSub,
+                rows: heaviestRows
             )
             chipCard(
                 label: "history.chip.topProject",
                 value: topProjectLabel,
-                sub: topProjectSub
+                sub: topProjectSub,
+                rows: topProjectRows
             )
             chipCard(
                 label: "history.chip.topModel",
                 value: topModelLabel,
-                sub: topModelSub
+                sub: topModelSub,
+                rows: topModelRows
             )
             chipCard(
                 label: "history.chip.avgPerSession",
                 value: TokenFormatter.compact(store.summary.averagePerSession),
-                sub: String(format: String(localized: "history.chip.avgPerSession.sub"), store.summary.sessionsCount)
+                sub: String(format: String(localized: "history.chip.avgPerSession.sub"), store.summary.sessionsCount),
+                rows: avgRows
             )
         }
     }
 
-    private func chipCard(label: String.LocalizationValue, value: String, sub: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(String(localized: label))
-                .font(DS.Typography.micro)
-                .tracking(0.8)
-                .foregroundStyle(.tertiary)
-            Text(value)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.primary)
-                .monospacedDigit()
-            Text(sub)
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+    /// One footer chip. Collapsed shows label + headline value + sub. Tapping
+    /// any chip toggles `chipsExpanded` for the whole row; expanded, the sub is
+    /// replaced by up to a 5-row ranked list (`rows`).
+    private func chipCard(label: String.LocalizationValue, value: String, sub: String, rows: [(name: String, value: String)]) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { chipsExpanded.toggle() }
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(String(localized: label))
+                        .font(DS.Typography.micro)
+                        .tracking(0.8)
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 2)
+                    Image(systemName: chipsExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.quaternary)
+                }
+                Text(value)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if chipsExpanded {
+                    if rows.isEmpty {
+                        Text(String(localized: "history.empty.dash"))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                                HStack(spacing: 6) {
+                                    Text(row.name)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer(minLength: 4)
+                                    Text(row.value)
+                                        .foregroundStyle(.tertiary)
+                                        .monospacedDigit()
+                                }
+                                .font(.system(size: 10))
+                            }
+                        }
+                        .padding(.top, 1)
+                    }
+                } else {
+                    Text(sub)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(DS.Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .fill(DS.Pastel.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .stroke(DS.Pastel.border, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
         }
-        .padding(DS.Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                .fill(DS.Pastel.card)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                .stroke(DS.Pastel.border, lineWidth: 1)
-        )
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Expanded chip row data (top 5)
+
+    private var cacheHitRows: [(name: String, value: String)] {
+        [(String(localized: "history.chip.cached"), TokenFormatter.compact(store.summary.totalCached)),
+         (String(localized: "history.chip.active"), TokenFormatter.compact(store.summary.totalActive))]
+    }
+
+    private var heaviestRows: [(name: String, value: String)] {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate(store.range.isHourly ? "MMMd, h a" : "MMMd")
+        return store.summary.heaviestDays.map { (f.string(from: $0.date), TokenFormatter.compact($0.totalActive)) }
+    }
+
+    private var topProjectRows: [(name: String, value: String)] {
+        store.summary.topProjects.map {
+            (URL(fileURLWithPath: $0.path).lastPathComponent, TokenFormatter.compact($0.tokens))
+        }
+    }
+
+    private var topModelRows: [(name: String, value: String)] {
+        store.summary.topModels.map { ($0.kind.displayName, TokenFormatter.compact($0.tokens)) }
+    }
+
+    private var avgRows: [(name: String, value: String)] {
+        [(String(localized: "history.chip.active"), TokenFormatter.compact(store.summary.totalActive)),
+         (String(localized: "history.sessions.label"), "\(store.summary.sessionsCount)")]
     }
 
     // MARK: - Computed presentation helpers

@@ -251,6 +251,11 @@ struct HistorySummary: Sendable {
     let topModel: (kind: ModelKind, tokens: Int)?
     let topProject: (path: String, tokens: Int)?
     let sessionsCount: Int
+    /// Ranked top-5 lists behind the collapsed chips, surfaced when the footer
+    /// is expanded. Ordered biggest first; may hold fewer than 5.
+    let topProjects: [(path: String, tokens: Int)]
+    let topModels: [(kind: ModelKind, tokens: Int)]
+    let heaviestDays: [HistoryBucket]
 
     var totalIncludingCache: Int { totalActive + totalCached }
 
@@ -275,7 +280,10 @@ struct HistorySummary: Sendable {
         heaviestBucket: nil,
         topModel: nil,
         topProject: nil,
-        sessionsCount: 0
+        sessionsCount: 0,
+        topProjects: [],
+        topModels: [],
+        heaviestDays: []
     )
 }
 

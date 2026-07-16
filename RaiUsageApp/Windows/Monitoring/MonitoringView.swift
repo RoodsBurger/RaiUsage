@@ -675,7 +675,8 @@ struct MonitoringView: View {
         .sorted { $0.tokens > $1.tokens }
         guard !used.isEmpty else { return [] }
         let grandTotal = used.reduce(0) { $0 + $1.tokens }
-        return used.prefix(4).map { entry in
+        // Every model family with 7-day usage, biggest first (no cap).
+        return used.map { entry in
             let share = grandTotal > 0 ? Int((Double(entry.tokens) / Double(grandTotal) * 100).rounded()) : 0
             return .activity(ActivityTileDescriptor(
                 id: "model-\(entry.family.rawValue)",
