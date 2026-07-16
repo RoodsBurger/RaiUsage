@@ -47,6 +47,9 @@ final class SettingsStore: ObservableObject {
     var weeklyPacingDisplayMode: PacingDisplayMode {
         get { display.weeklyPacingDisplayMode } set { display.weeklyPacingDisplayMode = newValue }
     }
+    var monthlyPacingDisplayMode: PacingDisplayMode {
+        get { display.monthlyPacingDisplayMode } set { display.monthlyPacingDisplayMode = newValue }
+    }
     /// Full menu-bar rendering configuration. Views should prefer
     /// `settings.display.$menuBarConfig` for bindings; this forward is for
     /// non-binding call sites (StatusBarController, context menu, previews).

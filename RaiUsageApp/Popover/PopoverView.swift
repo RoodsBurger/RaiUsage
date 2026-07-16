@@ -126,6 +126,11 @@ struct PopoverView: View {
         if usageStore.planType == .enterprise {
             available.insert(.fiveHourActivity)
             available.insert(.sevenDayActivity)
+            // Enterprise-only gate for the monthly-budget pace. Like the other
+            // pacing metrics it is menu-bar-only and has no popover row builder
+            // (`percentRow` returns nil for it), so it never renders here - the
+            // gate keeps it off personal plans in every surface for consistency.
+            available.insert(.monthlyPacing)
         }
         return available
     }
@@ -236,7 +241,7 @@ struct PopoverView: View {
             return nil
         // Not offered by `PopoverConfig` (extraCredits/pacing/status/reset are
         // their own sections or menu-bar-only) - never reached in practice.
-        case .extraCredits, .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset:
+        case .extraCredits, .sessionPacing, .weeklyPacing, .monthlyPacing, .serviceStatus, .sessionReset:
             return nil
         }
     }

@@ -107,6 +107,7 @@ struct MenuBarSectionView: View {
             resetDisplayFormat: settingsStore.resetDisplayFormat,
             sessionPacingDisplayMode: settingsStore.sessionPacingDisplayMode,
             weeklyPacingDisplayMode: settingsStore.weeklyPacingDisplayMode,
+            monthlyPacingDisplayMode: settingsStore.monthlyPacingDisplayMode,
             isEnterprise: usageStore.planType == .enterprise
         )
     }
@@ -225,7 +226,7 @@ struct MenuBarSectionView: View {
     private func supportsValueStyle(_ id: MetricID) -> Bool {
         switch id {
         case .fiveHour, .sevenDay, .sonnet, .design, .fable, .extraCredits: return true
-        case .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
+        case .sessionPacing, .weeklyPacing, .monthlyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
              .fiveHourActivity, .sevenDayActivity: return false
         }
     }
@@ -237,7 +238,7 @@ struct MenuBarSectionView: View {
     private func supportsCountdown(_ id: MetricID) -> Bool {
         switch id {
         case .fiveHour, .sevenDay, .sonnet, .design, .fable: return true
-        case .extraCredits, .sessionPacing, .weeklyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
+        case .extraCredits, .sessionPacing, .weeklyPacing, .monthlyPacing, .serviceStatus, .sessionReset, .opus, .cowork,
              .fiveHourActivity, .sevenDayActivity: return false
         }
     }

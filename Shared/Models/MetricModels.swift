@@ -10,6 +10,10 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
     case extraCredits = "extraCredits"
     case sessionPacing = "sessionPacing"
     case weeklyPacing = "weeklyPacing"
+    /// Monthly-budget pace (org $used vs the monthly limit). Enterprise-only:
+    /// it reads the org-credit pool, which personal plans don't have. Hidden
+    /// from every picker off enterprise (see `menuBarPinnable(isEnterprise:)`).
+    case monthlyPacing = "monthlyPacing"
     case serviceStatus = "serviceStatus"
     /// Weekly Opus utilization. Popover-only for now - not offered as a menu-bar
     /// pin (see `MetricID.menuBarPinnable`), since `MenuBarRenderer` has no
@@ -37,6 +41,7 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
         case .extraCredits: return String(localized: "metric.extraCredits")
         case .sessionPacing: return String(localized: "pacing.session.label")
         case .weeklyPacing: return String(localized: "pacing.weekly.label")
+        case .monthlyPacing: return String(localized: "pacing.monthly.label")
         case .serviceStatus: return String(localized: "metric.serviceStatus")
         case .opus: return String(localized: "metric.opus")
         case .cowork: return String(localized: "metric.cowork")
@@ -56,6 +61,7 @@ enum MetricID: String, CaseIterable, Codable, Sendable {
         case .extraCredits: return "EC"
         case .sessionPacing: return "5hP"
         case .weeklyPacing: return "7dP"
+        case .monthlyPacing: return "1mP"
         case .serviceStatus: return ""
         case .opus: return "O"
         case .cowork: return "Cw"

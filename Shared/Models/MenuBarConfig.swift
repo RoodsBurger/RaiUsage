@@ -125,18 +125,18 @@ extension MetricID {
     /// role is now the `showCountdown` flag on any percentage pin. `opus` and
     /// `cowork` are excluded too - they're popover-only (see `MetricID.opus`),
     /// `MenuBarRenderer` has no percentage/reset wiring for them. The
-    /// history-derived activity metrics are excluded here and offered only
-    /// through the enterprise-aware overload below.
+    /// history-derived activity metrics and `monthlyPacing` are excluded here
+    /// and offered only through the enterprise-aware overload below.
     static var menuBarPinnable: [MetricID] {
-        allCases.filter { $0 != .sessionReset && $0 != .opus && $0 != .cowork && !$0.isActivity }
+        allCases.filter { $0 != .sessionReset && $0 != .opus && $0 != .cowork && $0 != .monthlyPacing && !$0.isActivity }
     }
 
     /// Plan-aware pinnable list: enterprise additionally offers the 5h/7d
-    /// activity pins (history-derived token counts) because its API windows
-    /// are untracked. Personal plans never see them - the API percentages
-    /// already cover those windows.
+    /// activity pins (history-derived token counts) and the monthly-budget
+    /// pacing pin, because its API windows are untracked and the org-credit
+    /// pool it paces against exists only there. Personal plans never see them.
     static func menuBarPinnable(isEnterprise: Bool) -> [MetricID] {
-        isEnterprise ? menuBarPinnable + [.fiveHourActivity, .sevenDayActivity] : menuBarPinnable
+        isEnterprise ? menuBarPinnable + [.fiveHourActivity, .sevenDayActivity, .monthlyPacing] : menuBarPinnable
     }
 
     /// SF Symbol shown when a pin's `prefix` is `.symbol`.
@@ -148,7 +148,7 @@ extension MetricID {
         case .design:        return "paintbrush.pointed.fill"
         case .fable:         return "books.vertical.fill"
         case .extraCredits:  return "creditcard.fill"
-        case .sessionPacing, .weeklyPacing: return "speedometer"
+        case .sessionPacing, .weeklyPacing, .monthlyPacing: return "speedometer"
         case .serviceStatus: return "dot.radiowaves.left.and.right"
         case .sessionReset:  return "clock.arrow.circlepath"
         case .opus:          return "crown.fill"

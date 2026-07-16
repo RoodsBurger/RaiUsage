@@ -62,6 +62,9 @@ final class DisplaySettingsStore: ObservableObject {
     @Published var weeklyPacingDisplayMode: PacingDisplayMode {
         didSet { UserDefaults.standard.set(weeklyPacingDisplayMode.rawValue, forKey: "weeklyPacingDisplayMode") }
     }
+    @Published var monthlyPacingDisplayMode: PacingDisplayMode {
+        didSet { UserDefaults.standard.set(monthlyPacingDisplayMode.rawValue, forKey: "monthlyPacingDisplayMode") }
+    }
     /// Full menu-bar rendering configuration (pins, order, per-pin format,
     /// display mode, color mode, icon/separator/fixed-width). Persisted as
     /// JSON; a decode failure or fresh install falls back to `MenuBarConfig()`.
@@ -112,6 +115,9 @@ final class DisplaySettingsStore: ObservableObject {
         ) ?? .dotDelta
         self.weeklyPacingDisplayMode = PacingDisplayMode(
             rawValue: UserDefaults.standard.string(forKey: "weeklyPacingDisplayMode") ?? "dotDelta"
+        ) ?? .dotDelta
+        self.monthlyPacingDisplayMode = PacingDisplayMode(
+            rawValue: UserDefaults.standard.string(forKey: "monthlyPacingDisplayMode") ?? "dotDelta"
         ) ?? .dotDelta
 
         if let data = UserDefaults.standard.data(forKey: "menuBarConfig"),

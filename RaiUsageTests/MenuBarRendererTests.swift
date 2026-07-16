@@ -171,6 +171,8 @@ private func makeRenderData(
     fiveHourActivityTokens: Int? = 301_000,
     sevenDayActivityTokens: Int? = 2_450_000,
     monthlyPacingZone: PacingZone? = nil,
+    monthlyPacingDelta: Int = 0,
+    monthlyPacingDisplayMode: PacingDisplayMode = .dotDelta,
     outageActive: Bool = false,
     outageHealth: VendorHealth = .healthy,
     nextPollSeconds: Int? = nil,
@@ -234,6 +236,8 @@ private func makeRenderData(
         fiveHourActivityTokens: fiveHourActivityTokens,
         sevenDayActivityTokens: sevenDayActivityTokens,
         monthlyPacingZone: monthlyPacingZone,
+        monthlyPacingDelta: monthlyPacingDelta,
+        monthlyPacingDisplayMode: monthlyPacingDisplayMode,
         outageActive: outageActive,
         outageHealth: outageHealth,
         nextPollSeconds: nextPollSeconds,
@@ -941,5 +945,84 @@ struct MenuBarMonthlyPacingDotTests {
         let colors = dotColors(isEnterprise: false, monthlyZone: .hot)
         #expect(colors.contains(RiskZone.ok.dotColor(menuBarIsDark: true)))
         #expect(!colors.contains(PacingZone.hot.dotColor(menuBarIsDark: true)))
+    }
+}
+
+@Suite("MenuBarRenderer monthlyPacing pin (enterprise-only)")
+struct MenuBarMonthlyPacingPinTests {
+
+    @Test("enterprise renders the monthly pacing pin with its signed delta")
+    func rendersWhenEnterprise() {
+        let data = makeRenderData(
+            pinned: [.init(id: .monthlyPacing, prefix: .shortLabel)],
+            colorMode: .monochrome,
+            isEnterprise: true,
+            monthlyPacingZone: .onTrack,
+            monthlyPacingDelta: 18,
+            monthlyPacingDisplayMode: .delta
+        )
+        #expect(MenuBarRenderer.visiblePins(data).count == 1)
+        #expect(MenuBarRenderer.buildLine(data: data).string == "1mP +18%")
+    }
+
+    @Test("monthly pacing pin is hidden on non-enterprise plans even when configured")
+    func hiddenOnPersonalPlans() {
+        let data = makeRenderData(
+            pinned: [.init(id: .monthlyPacing, prefix: .shortLabel)],
+            colorMode: .monochrome,
+            isEnterprise: false,
+            monthlyPacingZone: .hot,
+            monthlyPacingDelta: 40
+        )
+        #expect(MenuBarRenderer.visiblePins(data).isEmpty)
+        #expect(MenuBarRenderer.buildLine(data: data).string.isEmpty)
+    }
+
+    @Test("monthly pacing pin is hidden on enterprise until the zone resolves")
+    func hiddenWithoutZone() {
+        let data = makeRenderData(
+            pinned: [.init(id: .monthlyPacing, prefix: .shortLabel)],
+            colorMode: .monochrome,
+            isEnterprise: true,
+            monthlyPacingZone: nil
+        )
+        #expect(MenuBarRenderer.visiblePins(data).isEmpty)
+        #expect(MenuBarRenderer.buildLine(data: data).string.isEmpty)
+    }
+
+    @Test("risk mode colors the monthly pacing dot by its zone")
+    func riskDotUsesZone() {
+        let data = makeRenderData(
+            pinned: [.init(id: .monthlyPacing, prefix: .none)],
+            colorMode: .risk,
+            isEnterprise: true,
+            monthlyPacingZone: .hot,
+            monthlyPacingDelta: 25,
+            monthlyPacingDisplayMode: .dot
+        )
+        var colors = Set<NSColor>()
+        let line = MenuBarRenderer.buildLine(data: data)
+        line.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+            if let color = value as? NSColor { colors.insert(color) }
+        }
+        #expect(colors.contains(PacingZone.hot.dotColor(menuBarIsDark: true)))
+    }
+
+    @Test("highest-risk mode surfaces a hot monthly pace over a calm neighbor")
+    func highestRiskPrefersHotMonthly() {
+        let data = makeRenderData(
+            pinned: [
+                .init(id: .sevenDay, prefix: .none),
+                .init(id: .monthlyPacing, prefix: .shortLabel),
+            ],
+            displayMode: .highestRisk,
+            colorMode: .monochrome,
+            sevenDayPct: 5,
+            isEnterprise: true,
+            monthlyPacingZone: .hot,
+            monthlyPacingDelta: 30,
+            monthlyPacingDisplayMode: .delta
+        )
+        #expect(MenuBarRenderer.buildLine(data: data).string == "1mP +30%")
     }
 }

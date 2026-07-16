@@ -92,8 +92,16 @@ enum MenuBarRenderer {
         /// Only populated on enterprise; when present it drives the Extra
         /// Credits pin's risk dot and its highestRisk rank in place of the
         /// static threshold ladder - the org's real constraint is the monthly
-        /// budget pace, not the raw percentage.
+        /// budget pace, not the raw percentage. It also backs the enterprise-only
+        /// `monthlyPacing` pin (delta + display mode below).
         let monthlyPacingZone: PacingZone?
+        let monthlyPacingDelta: Int
+        let monthlyPacingDisplayMode: PacingDisplayMode
+
+        /// The enterprise-only `monthlyPacing` pin renders only when the plan is
+        /// enterprise and the monthly-budget zone has actually resolved, so a
+        /// stale config never surfaces it on a personal plan.
+        var hasMonthlyPacing: Bool { isEnterprise && monthlyPacingZone != nil }
 
         // Outage badge - set by StatusBarController from VendorStatusStore.
         let outageActive: Bool
@@ -127,6 +135,7 @@ enum MenuBarRenderer {
             resetDisplayFormat: ResetDisplayFormat = .relative,
             sessionPacingDisplayMode: PacingDisplayMode = .dotDelta,
             weeklyPacingDisplayMode: PacingDisplayMode = .dotDelta,
+            monthlyPacingDisplayMode: PacingDisplayMode = .dotDelta,
             menuBarIsDark: Bool = true,
             isEnterprise: Bool = false
         ) -> RenderData {
@@ -180,6 +189,8 @@ enum MenuBarRenderer {
                 fiveHourActivityTokens: 301_000,
                 sevenDayActivityTokens: 2_450_000,
                 monthlyPacingZone: isEnterprise ? .onTrack : nil,
+                monthlyPacingDelta: 18,
+                monthlyPacingDisplayMode: monthlyPacingDisplayMode,
                 outageActive: false,
                 outageHealth: .healthy,
                 nextPollSeconds: nil,
@@ -390,9 +401,11 @@ enum MenuBarRenderer {
             case .extraCredits: return data.hasExtraCredits
             case .weeklyPacing: return data.hasWeeklyPacing
             case .serviceStatus: return true
-            // Enterprise-only: the activity pins have no meaning where real
-            // API windows exist, so a stale config never shows them elsewhere.
+            // Enterprise-only: the activity pins and the monthly-budget pace
+            // have no meaning where real API windows / the org pool don't
+            // exist, so a stale config never shows them on a personal plan.
             case .fiveHourActivity, .sevenDayActivity: return data.isEnterprise
+            case .monthlyPacing: return data.hasMonthlyPacing
             // Popover-only - never actually pinned (excluded from
             // `MetricID.menuBarPinnable`), kept here only for switch exhaustiveness.
             case .opus, .cowork: return false
@@ -489,6 +502,8 @@ enum MenuBarRenderer {
             return data.hasSessionPacing ? pacingRank(data.sessionPacingZone) : 0
         case .weeklyPacing:
             return data.hasWeeklyPacing ? pacingRank(data.weeklyPacingZone) : 0
+        case .monthlyPacing:
+            return data.hasMonthlyPacing ? pacingRank(data.monthlyPacingZone ?? .onTrack) : 0
         case .serviceStatus:
             return data.outageHealth.rawValue
         case .sessionReset:
@@ -522,6 +537,8 @@ enum MenuBarRenderer {
             return buildPacingMetric(pin, hasData: data.hasSessionPacing, delta: data.sessionPacingDelta, zone: data.sessionPacingZone, mode: data.sessionPacingDisplayMode, data: data)
         case .weeklyPacing:
             return buildPacingMetric(pin, hasData: true, delta: data.weeklyPacingDelta, zone: data.weeklyPacingZone, mode: data.weeklyPacingDisplayMode, data: data)
+        case .monthlyPacing:
+            return buildPacingMetric(pin, hasData: data.hasMonthlyPacing, delta: data.monthlyPacingDelta, zone: data.monthlyPacingZone ?? .onTrack, mode: data.monthlyPacingDisplayMode, data: data)
         case .serviceStatus:
             return buildServiceStatus(pin, data: data)
         case .sessionReset:

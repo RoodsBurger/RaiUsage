@@ -517,6 +517,8 @@ final class StatusBarController: NSObject {
             fiveHourActivityTokens: usageStore.planType == .enterprise ? activityStore.fiveHour?.activeTokens : nil,
             sevenDayActivityTokens: usageStore.planType == .enterprise ? activityStore.sevenDay?.activeTokens : nil,
             monthlyPacingZone: usageStore.planType == .enterprise ? usageStore.monthlyPacing?.zone : nil,
+            monthlyPacingDelta: usageStore.planType == .enterprise ? Int(usageStore.monthlyPacing?.delta ?? 0) : 0,
+            monthlyPacingDisplayMode: settingsStore.monthlyPacingDisplayMode,
             outageActive: settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded,
             outageHealth: vendorStatusStore.worstHealth,
             nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) },
