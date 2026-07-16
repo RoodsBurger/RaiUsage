@@ -45,7 +45,7 @@ DMG="$WORK/RaiUsage.dmg"
 curl -fL# "$DMG_URL" -o "$DMG" || die "Download failed."
 
 say "Mounting the disk image..."
-MOUNT="$(hdiutil attach -nobrowser -noverify -noautoopen "$DMG" | grep -o '/Volumes/[^ ]*.*' | tail -1)"
+MOUNT="$(hdiutil attach -nobrowse -noverify -noautoopen "$DMG" | grep -o '/Volumes/[^ ]*.*' | tail -1)"
 [ -n "$MOUNT" ] && [ -d "$MOUNT/$APP" ] || die "Could not find $APP inside the DMG."
 
 say "Installing to /Applications..."
