@@ -42,7 +42,7 @@ RaiUsage is based on [TokenEater](https://github.com/AThevon/TokenEater) — cle
 curl -fsSL https://raw.githubusercontent.com/RoodsBurger/RaiUsage/main/install.sh | bash
 ```
 
-Downloads the latest release, installs RaiUsage to `/Applications`, and launches it. Because `curl` doesn't quarantine the download, Gatekeeper doesn't prompt — no "Open Anyway" step. Re-run the same command to update. To review it first: [`install.sh`](install.sh).
+Downloads the latest release, installs RaiUsage to `/Applications`, and launches it. Because `curl` doesn't quarantine the download, Gatekeeper doesn't prompt — no "Open Anyway" step. **No admin? No problem** — if `/Applications` isn't writable it installs to your personal `~/Applications` instead (and the in-app updater updates it there too). Re-run the same command to update. To review it first: [`install.sh`](install.sh).
 
 ### Download DMG (no Xcode needed)
 

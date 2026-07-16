@@ -48,23 +48,33 @@ say "Mounting the disk image..."
 MOUNT="$(hdiutil attach -nobrowse -noverify -noautoopen "$DMG" | grep -o '/Volumes/[^ ]*.*' | tail -1)"
 [ -n "$MOUNT" ] && [ -d "$MOUNT/$APP" ] || die "Could not find $APP inside the DMG."
 
-say "Installing to /Applications..."
+# Prefer /Applications, but fall back to the per-user ~/Applications when it
+# isn't writable (no admin rights - common on managed work Macs). macOS treats
+# ~/Applications as a first-class app location, so no admin is ever needed.
+APPDIR="/Applications"
+if [ ! -w "$APPDIR" ]; then
+  APPDIR="$HOME/Applications"
+  mkdir -p "$APPDIR"
+  warn "No admin access to /Applications - installing to ~/Applications instead."
+fi
+
+say "Installing to $APPDIR..."
 # Replace any running copy: quit it first so the binary isn't held in memory.
 osascript -e 'tell application "RaiUsage" to quit' 2>/dev/null || true
 killall RaiUsage 2>/dev/null || true
-rm -rf "/Applications/$APP"
-cp -R "$MOUNT/$APP" /Applications/
+rm -rf "$APPDIR/$APP"
+cp -R "$MOUNT/$APP" "$APPDIR/"
 hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
 MOUNT=""
 
 # Defensive: strip quarantine in case a proxy/AV added it, so the first launch
 # is prompt-free even on locked-down networks.
-xattr -cr "/Applications/$APP" 2>/dev/null || true
+xattr -cr "$APPDIR/$APP" 2>/dev/null || true
 # Re-register with LaunchServices so macOS reads the fresh version metadata.
 /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
-  -f "/Applications/$APP" 2>/dev/null || true
+  -f "$APPDIR/$APP" 2>/dev/null || true
 
 say "Launching RaiUsage..."
-open "/Applications/$APP"
+open "$APPDIR/$APP"
 
-printf '\033[1;32m✓ Installed RaiUsage %s.\033[0m It lives in your menu bar (no Dock icon).\n' "${TAG:-}"
+printf '\033[1;32m✓ Installed RaiUsage %s\033[0m to %s. It lives in your menu bar (no Dock icon).\n' "${TAG:-}" "$APPDIR"

@@ -1,14 +1,19 @@
 import AppKit
 
-/// Downloads a release DMG and swap-installs /Applications/RaiUsage.app.
+/// Downloads a release DMG and swap-installs the running app in place.
 /// Fail-closed: every step throws a user-readable error, and the new bundle
 /// lands under a temporary name first so an interrupted copy can never leave
 /// a half-written bundle where the working install was.
 final class UpdateInstaller: UpdateInstallerProtocol, @unchecked Sendable {
-    static let installedAppURL = URL(fileURLWithPath: "/Applications/RaiUsage.app")
-    /// Hidden staging name inside /Applications, swapped into place by a
+    /// The running app's own bundle, so an update replaces wherever it actually
+    /// lives - `/Applications` for admin installs, `~/Applications` for the
+    /// no-admin fallback - without ever needing write access to `/Applications`.
+    static var installedAppURL: URL { Bundle.main.bundleURL }
+    /// Hidden staging name in the same directory, swapped into place by a
     /// same-volume rename once the copy has fully succeeded.
-    static let stagingAppURL = URL(fileURLWithPath: "/Applications/.RaiUsage.update.app")
+    static var stagingAppURL: URL {
+        installedAppURL.deletingLastPathComponent().appendingPathComponent(".RaiUsage.update.app")
+    }
     private static let appBundleName = "RaiUsage.app"
 
     // MARK: - Download
