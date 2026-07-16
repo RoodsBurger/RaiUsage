@@ -762,8 +762,6 @@ enum MenuBarRenderer {
 
     /// Session/weekly pacing row: dot / dot+delta / delta per
     /// `PacingDisplayMode`. The dot glyph is a fixed "\u{25CF}".
-    private static let pacingGlyph = "\u{25CF}"
-
     private static func buildPacingMetric(
         _ pin: PinnedMetricConfig,
         hasData: Bool,
@@ -773,19 +771,16 @@ enum MenuBarRenderer {
         data: RenderData
     ) -> NSAttributedString {
         let str = NSMutableAttributedString()
+        // A single small zone-colored risk dot before the label, exactly like
+        // the percent metrics - green/amber/coral in risk mode, text color
+        // before data arrives. The dot display modes carry it; delta-only omits
+        // it. No separate glyph, so there's just the one circle.
+        if mode != .delta, data.menuBarConfig.colorMode == .risk {
+            let dotColor = hasData ? zone.dotColor(menuBarIsDark: data.menuBarIsDark) : textColor(data)
+            appendDot(dotColor, to: str)
+        }
         appendPrefix(pin, to: str, data: data)
 
-        // The pacing glyph is itself the zone indicator: colored by the pacing
-        // zone in risk mode (green/amber/coral), not a bare white circle. Falls
-        // back to the adaptive text color in monochrome mode or before data
-        // arrives. Always present, so the pin's width stays stable.
-        let glyphColor: NSColor = (data.menuBarConfig.colorMode == .risk && hasData)
-            ? zone.dotColor(menuBarIsDark: data.menuBarIsDark)
-            : textColor(data)
-        let dotAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-            .foregroundColor: glyphColor,
-        ]
         let deltaAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
             .foregroundColor: textColor(data),
@@ -793,9 +788,8 @@ enum MenuBarRenderer {
         let sign = delta >= 0 ? "+" : ""
         switch mode {
         case .dot:
-            str.append(NSAttributedString(string: pacingGlyph, attributes: dotAttrs))
+            break
         case .dotDelta:
-            str.append(NSAttributedString(string: pacingGlyph, attributes: dotAttrs))
             str.append(NSAttributedString(string: hasData ? " \(sign)\(delta)%" : " -", attributes: deltaAttrs))
         case .delta:
             str.append(NSAttributedString(string: hasData ? "\(sign)\(delta)%" : "-", attributes: deltaAttrs))
