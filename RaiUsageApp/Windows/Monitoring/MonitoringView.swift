@@ -668,13 +668,13 @@ struct MonitoringView: View {
         }
     }
 
-    /// Per-model identity tint for the token tile value + sparkline. Opus uses
-    /// a violet rather than the History chart's amber so it stays distinct from
-    /// the neighbouring Weekly gauge's warm risk color.
+    /// Per-model identity tint for the token tile value + sparkline, matching
+    /// the History chart's categorical palette so a model reads the same color
+    /// across views.
     private func familyColor(_ family: ModelFamily) -> Color {
         switch family {
         case .fable:  return Color(hex: "#E86FC4")
-        case .opus:   return Color(hex: "#A78BFA")
+        case .opus:   return Color(hex: "#F2B968")
         case .sonnet: return Color(hex: "#5BC489")
         case .haiku:  return Color(hex: "#4FB7B0")
         case .other:  return DS.Pastel.blue
