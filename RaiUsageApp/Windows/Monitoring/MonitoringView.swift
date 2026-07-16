@@ -17,6 +17,7 @@ struct MonitoringView: View {
     /// "5H/7D ACTIVITY" tiles. Injected at the hosting root (it outlives the
     /// dashboard window - the menu bar pins read it too).
     @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
 
     /// Lightweight 7d daily-buckets store for the inline tile insights.
     /// Loaded once on appear, refreshed if older than 60s. Owned by
@@ -74,6 +75,7 @@ struct MonitoringView: View {
             }
         }
         .onAppear {
+            insightsStore.setInstances(remoteInstancesStore.instances)
             insightsStore.warmIfStale()
             warmActivityIfEnterprise()
         }
@@ -84,6 +86,15 @@ struct MonitoringView: View {
             warmActivityIfEnterprise()
         }
         .onChange(of: usageStore.planType) { _, _ in warmActivityIfEnterprise() }
+        .onChange(of: remoteInstancesStore.instances) { _, newInstances in
+            insightsStore.setInstances(newInstances)
+            insightsStore.warmIfStale()
+        }
+        // A completed remote sync refreshes the model tiles + activity totals.
+        .onChange(of: remoteInstancesStore.syncGeneration) { _, _ in
+            insightsStore.warmIfStale()
+            warmActivityIfEnterprise()
+        }
     }
 
     /// JSONL scans only ever happen for enterprise - personal plans keep
@@ -563,8 +574,8 @@ struct MonitoringView: View {
                 id: "activity5h",
                 label: String(localized: "metric.activity5h"),
                 icon: "waveform.path.ecg",
-                tokens: activityStore.fiveHour?.activeTokens,
-                sessions: activityStore.fiveHour?.sessionCount,
+                tokens: activityStore.fiveHourAll?.activeTokens,
+                sessions: activityStore.fiveHourAll?.sessionCount,
                 loaded: activityStore.hasLoaded
             )))
         }
@@ -587,8 +598,8 @@ struct MonitoringView: View {
                 id: "activity7d",
                 label: String(localized: "metric.activity7d"),
                 icon: "chart.bar.fill",
-                tokens: activityStore.sevenDay?.activeTokens,
-                sessions: activityStore.sevenDay?.sessionCount,
+                tokens: activityStore.sevenDayAll?.activeTokens,
+                sessions: activityStore.sevenDayAll?.sessionCount,
                 loaded: activityStore.hasLoaded
             )))
         }

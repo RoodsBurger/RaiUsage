@@ -19,6 +19,11 @@ final class ActivityStore: ObservableObject {
     /// JSONL history at all for the active source - consumers render "—".
     @Published private(set) var fiveHour: ActivityWindowSummary?
     @Published private(set) var sevenDay: ActivityWindowSummary?
+    /// Every-source aggregate, ignoring `sourceFilter`. The Monitoring
+    /// dashboard reads these so its tiles always cover all sources; the popover
+    /// keeps the filtered `fiveHour`/`sevenDay`.
+    @Published private(set) var fiveHourAll: ActivityWindowSummary?
+    @Published private(set) var sevenDayAll: ActivityWindowSummary?
     @Published private(set) var hasLoaded = false
 
     /// Active source selection for the popover activity tiles (nil = "All
@@ -111,20 +116,19 @@ final class ActivityStore: ObservableObject {
     /// stored per-source buckets. No I/O.
     private func recompute() {
         let now = Date()
-        let hourly = LogSourceAggregator.activeBuckets(bySource: hourlyBySource, sourceFilter: sourceFilter)
-        let daily = LogSourceAggregator.activeBuckets(bySource: dailyBySource, sourceFilter: sourceFilter)
-        if hourly.isEmpty && daily.isEmpty {
-            // No history at all for this source -> keep nil so surfaces show
-            // "—" instead of a misleading hard zero.
-            fiveHour = nil
-            sevenDay = nil
-        } else {
-            fiveHour = ActivityWindowCalculator.summary(
-                buckets: hourly, window: 5 * 3600, bucketSpan: 3600, now: now
-            )
-            sevenDay = ActivityWindowCalculator.summary(
-                buckets: daily, window: 7 * 86_400, bucketSpan: 86_400, now: now
-            )
-        }
+        (fiveHour, sevenDay) = summaries(filter: sourceFilter, now: now)
+        (fiveHourAll, sevenDayAll) = summaries(filter: nil, now: now)
+    }
+
+    /// 5h / 7d summaries for a source selection. Both nil when there is no
+    /// history at all, so surfaces show "—" rather than a misleading zero.
+    private func summaries(filter: LogSource?, now: Date) -> (ActivityWindowSummary?, ActivityWindowSummary?) {
+        let hourly = LogSourceAggregator.activeBuckets(bySource: hourlyBySource, sourceFilter: filter)
+        let daily = LogSourceAggregator.activeBuckets(bySource: dailyBySource, sourceFilter: filter)
+        guard !(hourly.isEmpty && daily.isEmpty) else { return (nil, nil) }
+        return (
+            ActivityWindowCalculator.summary(buckets: hourly, window: 5 * 3600, bucketSpan: 3600, now: now),
+            ActivityWindowCalculator.summary(buckets: daily, window: 7 * 86_400, bucketSpan: 86_400, now: now)
+        )
     }
 }

@@ -21,9 +21,20 @@ final class MonitoringInsightsStore: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var lastLoaded: Date?
     private static let staleAfter: TimeInterval = 60
+    /// Enabled + disabled instances defining the remote scan roots, so the
+    /// model tiles always aggregate every source (local + SSH instances).
+    private var currentInstances: [RemoteInstance] = []
 
     init(service: SessionHistoryServiceProtocol = SessionHistoryService()) {
         self.service = service
+    }
+
+    /// Updates the remote instances feeding the scan roots. A real change
+    /// forces the next `warmIfStale` to reload so new sources are picked up.
+    func setInstances(_ instances: [RemoteInstance]) {
+        guard instances != currentInstances else { return }
+        currentInstances = instances
+        lastLoaded = nil
     }
 
     /// Kicks a background load if no data has been loaded yet, or if the
@@ -35,18 +46,20 @@ final class MonitoringInsightsStore: ObservableObject {
         }
         loadTask?.cancel()
         let service = self.service
+        let roots = LogSourceAggregator.buildRoots(instances: currentInstances)
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
                 async let bucketsTask = Task.detached(priority: .utility) {
-                    try await service.loadHistory(range: .sevenDays)
+                    try await service.loadHistoryBySource(range: .sevenDays, roots: roots)
                 }.value
                 async let previousTask = Task.detached(priority: .utility) {
-                    try await service.loadPreviousPeriodActiveTokens(range: .sevenDays)
+                    try await service.loadPreviousPeriodActiveTokensBySource(range: .sevenDays, roots: roots)
                 }.value
 
-                let buckets = try await bucketsTask
-                let previous = (try? await previousTask) ?? 0
+                // Merge every source (local + instances) into one bucket series.
+                let buckets = LogSourceAggregator.activeBuckets(bySource: try await bucketsTask, sourceFilter: nil)
+                let previous = ((try? await previousTask) ?? [:]).values.reduce(0, +)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     let now = Date()
