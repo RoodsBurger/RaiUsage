@@ -1062,7 +1062,7 @@ struct HistoryView: View {
     private func chipColor(for family: ModelFamily) -> Color {
         switch family {
         case .fable:  return Color(hex: "#E86FC4")
-        case .opus:   return Color(hex: "#E8A24A")
+        case .opus:   return Color(hex: "#F2B968")
         case .sonnet: return Color(hex: "#5BC489")
         case .haiku:  return Color(hex: "#4FB7B0")
         case .other:  return Color(hex: "#9B8BD9")

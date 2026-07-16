@@ -340,7 +340,7 @@ struct MonitoringView: View {
                     }
                 }
             } else {
-                Text("Pacing data unavailable")
+                Text(String(localized: "pacing.unavailable"))
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
@@ -512,7 +512,7 @@ struct MonitoringView: View {
     private func gridTileView(_ tile: GridTile) -> some View {
         switch tile {
         case .activity(let descriptor):
-            ActivityTile(descriptor: descriptor)
+            ActivityTile(descriptor: descriptor, expanded: tilesExpanded, onToggle: { tilesExpanded.toggle() })
         case .metric(let tile):
             MetricTile(
                 id: tile.id,
@@ -613,7 +613,7 @@ struct MonitoringView: View {
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayCowork) {
             tiles.append(.metric(TileDescriptor(
                 id: "cowork",
-                label: "Cowork",
+                label: String(localized: "metric.cowork"),
                 icon: "person.2.fill",
                 pct: usageStore.coworkPct,
                 resetText: nil,
@@ -632,24 +632,26 @@ struct MonitoringView: View {
     /// families with usage, sorted by tokens desc.
     private func modelTokenTiles() -> [GridTile] {
         let families: [ModelFamily] = [.fable, .opus, .sonnet, .haiku, .other]
-        let used: [(family: ModelFamily, tokens: Int)] = families.compactMap { family in
-            guard let total = insightsStore.snapshot(for: family)?.total, total > 0 else { return nil }
-            return (family, total)
+        let used: [(family: ModelFamily, snapshot: TileInsightsSnapshot)] = families.compactMap { family in
+            guard let snap = insightsStore.snapshot(for: family), snap.total > 0 else { return nil }
+            return (family, snap)
         }
-        .sorted { $0.tokens > $1.tokens }
+        .sorted { $0.snapshot.total > $1.snapshot.total }
         guard !used.isEmpty else { return [] }
-        let grandTotal = used.reduce(0) { $0 + $1.tokens }
-        // Every model family with 7-day usage, biggest first (no cap).
-        return used.map { entry in
-            let share = grandTotal > 0 ? Int((Double(entry.tokens) / Double(grandTotal) * 100).rounded()) : 0
+        let grandTotal = used.reduce(0) { $0 + $1.snapshot.total }
+        // Top two models only, one grid row, each with a colored daily sparkline.
+        return used.prefix(2).map { entry in
+            let share = grandTotal > 0 ? Int((Double(entry.snapshot.total) / Double(grandTotal) * 100).rounded()) : 0
             return .activity(ActivityTileDescriptor(
                 id: "model-\(entry.family.rawValue)",
                 label: entry.family.displayName,
                 icon: familyIcon(entry.family),
-                tokens: entry.tokens,
+                tokens: entry.snapshot.total,
                 sessions: nil,
                 loaded: insightsStore.hasLoaded,
-                subtitle: String(format: String(localized: "monitoring.model.share"), share)
+                subtitle: String(format: String(localized: "monitoring.model.share"), share),
+                sparkline: entry.snapshot.sparkline,
+                tint: familyColor(entry.family)
             ))
         }
     }
@@ -661,6 +663,18 @@ struct MonitoringView: View {
         case .sonnet: return "text.quote"
         case .haiku:  return "leaf.fill"
         case .other:  return "cpu"
+        }
+    }
+
+    /// Per-model identity tint for the token tile value + sparkline, matching
+    /// the History chart's categorical palette.
+    private func familyColor(_ family: ModelFamily) -> Color {
+        switch family {
+        case .fable:  return Color(hex: "#E86FC4")
+        case .opus:   return Color(hex: "#F2B968")
+        case .sonnet: return Color(hex: "#5BC489")
+        case .haiku:  return Color(hex: "#4FB7B0")
+        case .other:  return DS.Pastel.blue
         }
     }
 

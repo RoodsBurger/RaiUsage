@@ -180,7 +180,7 @@ struct MetricTile: View {
             if let snapshot = insights {
                 richInsights(snapshot: snapshot, color: color)
             } else if !insightsLoaded {
-                Text("Loading...")
+                Text(String(localized: "activity.loading"))
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             } else {
@@ -201,7 +201,7 @@ struct MetricTile: View {
             if let delta = snapshot.deltaPercent {
                 Text(String(format: "%+.0f%%", delta))
                     .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(delta >= 0 ? DS.Pastel.amber : DS.Pastel.green)
+                    .foregroundStyle(delta >= 0 ? DS.Pastel.green : DS.Pastel.blue)
                     .monospacedDigit()
             }
         }
