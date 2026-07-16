@@ -571,6 +571,7 @@ struct HistoryView: View {
                 }
             }
             .chartXScale(domain: domain.start...domain.end)
+            .chartYScale(domain: 0...chartYMax(bucketsArray))
             .animation(DS.Motion.easeInOut, value: store.filter)
             .chartOverlay { proxy in
                 GeometryReader { geo in
@@ -672,6 +673,13 @@ struct HistoryView: View {
         let max = buckets.map(\.totalActive).max() ?? 0
         let floor = Int(Double(max) * 0.6)
         return Swift.max(bucket.totalActive, floor)
+    }
+
+    /// Y-axis ceiling pinned just above the tallest stacked day so the bars
+    /// fill the plot instead of floating under an auto-scaled round ceiling.
+    private func chartYMax(_ buckets: [HistoryBucket]) -> Double {
+        let maxDay = buckets.map(\.totalActive).max() ?? 0
+        return maxDay > 0 ? Double(maxDay) * 1.1 : 1
     }
 
     private func clearHover() {
@@ -940,7 +948,10 @@ struct HistoryView: View {
                 }
             }
             .padding(DS.Spacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Stretch to the tallest chip so expanded rows (2 vs 5 items) all
+            // share one height. The ScrollView gives intrinsic sizing, so this
+            // matches the tallest sibling rather than ballooning.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
                     .fill(DS.Pastel.card)

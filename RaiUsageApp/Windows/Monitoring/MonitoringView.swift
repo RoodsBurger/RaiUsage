@@ -592,20 +592,11 @@ struct MonitoringView: View {
                 loaded: activityStore.hasLoaded
             )))
         }
-        // Per-model tiles show only when actually used this period, so an
-        // unused model (e.g. Sonnet at 0%) never clutters the grid.
-        if usageStore.sonnetPct > 0,
-           EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDaySonnet) {
-            tiles.append(.metric(TileDescriptor(
-                id: "sonnet",
-                label: String(localized: "metric.sonnet"),
-                icon: "text.quote",
-                pct: usageStore.sonnetPct,
-                resetText: usageStore.sonnetReset.isEmpty ? nil : usageStore.sonnetReset,
-                resetDate: usageStore.lastUsage?.sevenDaySonnet?.resetsAtDate,
-                windowDuration: weekWindow
-            )))
-        }
+        // Per-model breakdown is token-based from 7-day history (see
+        // `modelTokenTiles`) so every used model reads consistently - including
+        // ones the usage API exposes no % limit for (e.g. Opus on Max). Design
+        // and Cowork stay as % tiles: they are feature limits, not model
+        // families that history tracks.
         if usageStore.hasDesign, usageStore.designPct > 0,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayDesign) {
             tiles.append(.metric(TileDescriptor(
@@ -615,18 +606,6 @@ struct MonitoringView: View {
                 pct: usageStore.designPct,
                 resetText: usageStore.designReset.isEmpty ? nil : usageStore.designReset,
                 resetDate: usageStore.lastUsage?.sevenDayDesign?.resetsAtDate,
-                windowDuration: weekWindow
-            )))
-        }
-        if usageStore.hasOpus, usageStore.opusPct > 0,
-           EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayOpus) {
-            tiles.append(.metric(TileDescriptor(
-                id: "opus",
-                label: "Opus",
-                icon: "brain.head.profile",
-                pct: usageStore.opusPct,
-                resetText: nil,
-                resetDate: nil,
                 windowDuration: weekWindow
             )))
         }
@@ -642,31 +621,16 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
-        if usageStore.hasFable, usageStore.fablePct > 0,
-           EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayFable) {
-            tiles.append(.metric(TileDescriptor(
-                id: "fable",
-                label: String(localized: "metric.fable"),
-                icon: "books.vertical.fill",
-                pct: usageStore.fablePct,
-                resetText: usageStore.fableReset.isEmpty ? nil : usageStore.fableReset,
-                resetDate: usageStore.lastUsage?.sevenDayFable?.resetsAtDate,
-                windowDuration: weekWindow
-            )))
-        }
-        // Enterprise has no per-model % limits (org is spend-capped), so the
-        // model breakdown comes from 7-day token history instead: one token
-        // tile per model family that saw usage, biggest first, with its share
-        // of the week as the subtitle.
-        if plan == .enterprise {
-            tiles.append(contentsOf: enterpriseModelTiles())
-        }
+        // Token tiles for every model family used in the last 7 days, on every
+        // plan, so the model breakdown is uniform and surfaces models with no %
+        // limit (Opus on Max).
+        tiles.append(contentsOf: modelTokenTiles())
         return tiles
     }
 
-    /// Per-model 7-day token tiles for enterprise, from `insightsStore`. Only
-    /// families with usage, sorted by tokens desc, capped so the grid stays tidy.
-    private func enterpriseModelTiles() -> [GridTile] {
+    /// Per-model 7-day token tiles from `insightsStore`, on every plan. Only
+    /// families with usage, sorted by tokens desc.
+    private func modelTokenTiles() -> [GridTile] {
         let families: [ModelFamily] = [.fable, .opus, .sonnet, .haiku, .other]
         let used: [(family: ModelFamily, tokens: Int)] = families.compactMap { family in
             guard let total = insightsStore.snapshot(for: family)?.total, total > 0 else { return nil }
