@@ -12,6 +12,9 @@ struct ActivityTileDescriptor {
     /// True once `ActivityStore` finished its first load - flips the
     /// placeholder from "Loading" to "No local history".
     let loaded: Bool
+    /// Optional secondary line shown in place of the session count (e.g. a
+    /// per-model share "34% of 7d"). When set it wins over sessions/loading.
+    var subtitle: String? = nil
 }
 
 /// Enterprise stand-in for a hidden untracked window tile: shows the local
@@ -57,7 +60,11 @@ struct ActivityTile: View {
             Spacer(minLength: 0)
 
             Group {
-                if let sessions = descriptor.sessions {
+                if let subtitle = descriptor.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else if let sessions = descriptor.sessions {
                     HStack(spacing: 5) {
                         Image(systemName: "person.fill")
                             .font(.system(size: 9, weight: .semibold))

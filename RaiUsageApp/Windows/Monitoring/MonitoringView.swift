@@ -592,7 +592,10 @@ struct MonitoringView: View {
                 loaded: activityStore.hasLoaded
             )))
         }
-        if EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDaySonnet) {
+        // Per-model tiles show only when actually used this period, so an
+        // unused model (e.g. Sonnet at 0%) never clutters the grid.
+        if usageStore.sonnetPct > 0,
+           EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDaySonnet) {
             tiles.append(.metric(TileDescriptor(
                 id: "sonnet",
                 label: String(localized: "metric.sonnet"),
@@ -603,7 +606,7 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
-        if usageStore.hasDesign,
+        if usageStore.hasDesign, usageStore.designPct > 0,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayDesign) {
             tiles.append(.metric(TileDescriptor(
                 id: "design",
@@ -615,7 +618,7 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
-        if usageStore.hasOpus,
+        if usageStore.hasOpus, usageStore.opusPct > 0,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayOpus) {
             tiles.append(.metric(TileDescriptor(
                 id: "opus",
@@ -627,7 +630,7 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
-        if usageStore.hasCowork,
+        if usageStore.hasCowork, usageStore.coworkPct > 0,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayCowork) {
             tiles.append(.metric(TileDescriptor(
                 id: "cowork",
@@ -639,7 +642,7 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
-        if usageStore.hasFable,
+        if usageStore.hasFable, usageStore.fablePct > 0,
            EnterprisePresentation.showsWindowTile(planType: plan, bucket: usageStore.lastUsage?.sevenDayFable) {
             tiles.append(.metric(TileDescriptor(
                 id: "fable",
@@ -651,7 +654,49 @@ struct MonitoringView: View {
                 windowDuration: weekWindow
             )))
         }
+        // Enterprise has no per-model % limits (org is spend-capped), so the
+        // model breakdown comes from 7-day token history instead: one token
+        // tile per model family that saw usage, biggest first, with its share
+        // of the week as the subtitle.
+        if plan == .enterprise {
+            tiles.append(contentsOf: enterpriseModelTiles())
+        }
         return tiles
+    }
+
+    /// Per-model 7-day token tiles for enterprise, from `insightsStore`. Only
+    /// families with usage, sorted by tokens desc, capped so the grid stays tidy.
+    private func enterpriseModelTiles() -> [GridTile] {
+        let families: [ModelFamily] = [.fable, .opus, .sonnet, .haiku, .other]
+        let used: [(family: ModelFamily, tokens: Int)] = families.compactMap { family in
+            guard let total = insightsStore.snapshot(for: family)?.total, total > 0 else { return nil }
+            return (family, total)
+        }
+        .sorted { $0.tokens > $1.tokens }
+        guard !used.isEmpty else { return [] }
+        let grandTotal = used.reduce(0) { $0 + $1.tokens }
+        return used.prefix(4).map { entry in
+            let share = grandTotal > 0 ? Int((Double(entry.tokens) / Double(grandTotal) * 100).rounded()) : 0
+            return .activity(ActivityTileDescriptor(
+                id: "model-\(entry.family.rawValue)",
+                label: entry.family.displayName,
+                icon: familyIcon(entry.family),
+                tokens: entry.tokens,
+                sessions: nil,
+                loaded: insightsStore.hasLoaded,
+                subtitle: String(format: String(localized: "monitoring.model.share"), share)
+            ))
+        }
+    }
+
+    private func familyIcon(_ family: ModelFamily) -> String {
+        switch family {
+        case .fable:  return "books.vertical.fill"
+        case .opus:   return "brain.head.profile"
+        case .sonnet: return "text.quote"
+        case .haiku:  return "leaf.fill"
+        case .other:  return "cpu"
+        }
     }
 
     // MARK: - Pacing row
