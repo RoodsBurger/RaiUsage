@@ -650,8 +650,11 @@ struct MonitoringView: View {
         .sorted { $0.snapshot.total > $1.snapshot.total }
         guard !used.isEmpty else { return [] }
         let grandTotal = used.reduce(0) { $0 + $1.snapshot.total }
-        // Top two models only, one grid row, each with a colored daily sparkline.
-        return used.prefix(2).map { entry in
+        // Fill one 3-wide grid row: enterprise has no Weekly tile and a Design
+        // tile takes a slot, leaving room for 3 model tiles; other plans keep
+        // the row tighter at 2. Share is over the full used set, not just shown.
+        let cap = usageStore.planType == .enterprise ? 3 : 2
+        return used.prefix(cap).map { entry in
             let share = grandTotal > 0 ? Int((Double(entry.snapshot.total) / Double(grandTotal) * 100).rounded()) : 0
             return .activity(ActivityTileDescriptor(
                 id: "model-\(entry.family.rawValue)",

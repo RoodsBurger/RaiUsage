@@ -47,7 +47,11 @@ struct ActivityTile: View {
 
     var body: some View {
         if canExpand, let onToggle {
-            Button(action: onToggle) { card }
+            Button {
+                // Match MetricTile: animate the shared expand so model tiles
+                // reveal their sparkline with the same motion as the % tiles.
+                withAnimation(.easeInOut(duration: 0.15)) { onToggle() }
+            } label: { card }
                 .buttonStyle(CardPressStyle(isHovered: isHovered, accent: accent, cornerRadius: DS.Radius.card))
                 .onHover { hovering in
                     withAnimation(DS.Motion.springSnap) { isHovered = hovering }
