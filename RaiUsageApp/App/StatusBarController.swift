@@ -885,9 +885,18 @@ final class StatusBarController: NSObject {
     // MARK: - Event Monitor
 
     private func startPopoverDismissMonitors() {
-        // Click into another app closes the popover.
+        // Click into another app closes the popover - but NOT a click on our own
+        // status item. The menu bar lives outside our windows, so this global
+        // monitor sees the icon's own mouse-down; dismissing here would race the
+        // button action's toggle (mouse-up), flickering or dropping the open.
+        // Skip it and let `statusBarClicked` be the sole handler for icon clicks.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.dismissPopover()
+            guard let self else { return }
+            if let button = self.statusItem.button, let win = button.window {
+                let frame = win.convertToScreen(button.convert(button.bounds, to: nil))
+                if frame.contains(NSEvent.mouseLocation) { return }
+            }
+            self.dismissPopover()
         }
         // Escape closes it. A key event is delivered to our own app, so it never
         // reaches the global monitor above - a local monitor is required.
