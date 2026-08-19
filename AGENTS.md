@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 5.8.0 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.4.11 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -72,7 +72,7 @@ All credential reading goes through `Shared/Services/TokenProvider.swift`. `curr
 
 `refreshTokenIfChanged()` re-polls the sources on the auto-refresh tick to catch Keychain account swaps (`claude /login`, account switch) that emit no filesystem event. `bootstrap()` is the only interactive read and is used once during onboarding. There is no `KeychainService` type; Keychain access lives in `SecurityCLIReader` and the inline reader closure in `TokenProvider`.
 
-Auth has two modes: the app's own "Sign in with Claude" OAuth login (`OAuthService` + `OAuthTokenStore`, PKCE-backed) is the primary path, and borrowing the Claude Code / Desktop token via the source chain above is the fallback.
+Auth has two modes: the app's own "Sign in with Claude" OAuth login (`OAuthService` + `OAuthTokenStore`, PKCE-backed) is the primary path, and borrowing the Claude Code / Desktop token via the source chain above is the fallback. Borrowed sources are strictly read-only: their refresh tokens are never exchanged (refresh tokens rotate on use, so redeeming one invalidates it for the app that minted it and the reuse-detection fallout kills both token families). An expired borrowed credential simply resolves to nil until its owner refreshes it. App-owned OAuth refresh failures are gated: a definitive 4xx marks the refresh token dead (no automatic retries until re-login), transient failures back off exponentially (60s doubling, 1h cap) - never a token-endpoint request per tick.
 
 ### Where to start reading
 

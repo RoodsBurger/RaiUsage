@@ -176,7 +176,7 @@ final class UsageStore: ObservableObject {
             case .tokenExpired, .noToken:
                 // Force an OAuth refresh (network) for our own tokens; no-op for
                 // borrowed sources. Then invalidate the cache so the retry reads
-                // the renewed OAuth token or a rotated borrowed one.
+                // the renewed OAuth token or a re-read borrowed one.
                 _ = await tokenProvider.handleUnauthorizedOAuth()
                 tokenProvider.invalidateToken()
                 // Retry once with a fresh token

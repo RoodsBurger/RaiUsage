@@ -9,6 +9,12 @@ struct TokenProviderTests {
     /// keychainReader that always returns nil (no Keychain in tests)
     private static let noKeychain: TokenProvider.KeychainTokenReader = { _ in nil }
 
+    /// Mutable clock injected as TokenProvider's `now` so backoff tests can
+    /// advance time deterministically.
+    private final class TestClock: @unchecked Sendable {
+        var now = Date()
+    }
+
     /// A per-call, guaranteed-nonexistent import file path. Every `TokenProvider`
     /// construction in this suite must pass an explicit import URL (never the
     /// real default) so tests never touch the real filesystem or Keychain.
@@ -26,7 +32,8 @@ struct TokenProviderTests {
         hasEncryptionKey: Bool = false,
         decryptedData: Data? = nil,
         oauthTokens: OAuthTokens? = nil,
-        oauthRefreshResult: Result<OAuthTokens, OAuthError> = .failure(.cancelled)
+        oauthRefreshResult: Result<OAuthTokens, OAuthError> = .failure(.cancelled),
+        now: (() -> Date)? = nil
     ) -> (TokenProvider, MockSecurityCLIReader, MockCredentialsFileReader, MockClaudeConfigReader, MockElectronDecryptionService, MockOAuthTokenStore, MockOAuthService) {
         let securityCLI = MockSecurityCLIReader()
         securityCLI.token = securityCLIToken
@@ -59,7 +66,8 @@ struct TokenProviderTests {
             keychainReader: keychainReader,
             oauthService: oauthService,
             oauthTokenStore: oauthStore,
-            oauthImportFileURL: Self.noImportFileURL
+            oauthImportFileURL: Self.noImportFileURL,
+            now: now ?? Date.init
         )
 
         return (provider, securityCLI, credentials, configReader, decryption, oauthStore, oauthService)
@@ -197,8 +205,8 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == nil) // the two agree - no phantom "detected"
     }
 
-    @Test("hasTokenSource is true for an expired but refreshable borrowed source")
-    func hasTokenSourceExpiredButRefreshable() {
+    @Test("hasTokenSource is false for an expired borrowed source even when it carries a refresh token (never redeemed)")
+    func hasTokenSourceExpiredRefreshableNotASource() {
         let (provider, securityCLI, _, _, _, _, _) = makeSUT()
         securityCLI.credential = BorrowedCredential(
             accessToken: "dead-access",
@@ -206,7 +214,8 @@ struct TokenProviderTests {
             expiresAt: Date().addingTimeInterval(-100)
         )
 
-        #expect(provider.hasTokenSource() == true)
+        #expect(provider.hasTokenSource() == false)
+        #expect(provider.currentToken() == nil) // the two agree - no phantom "detected"
     }
 
     @Test("config.json decryption is tried before direct Keychain")
@@ -497,7 +506,7 @@ struct TokenProviderTests {
         #expect(oauthService.refreshCallCount == 0)
     }
 
-    // MARK: - Borrow-and-self-refresh fallback (Task 4b)
+    // MARK: - Borrowed sources are read-only (never rotated)
 
     @Test("borrowed-valid-access: a still-valid borrowed credential is returned directly and never rotated")
     func refreshOAuthTokenIfNeededDoesNotRotateValidBorrowedAccess() async {
@@ -516,11 +525,10 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "borrowed-access")
     }
 
-    @Test("borrowed-expired-with-refreshToken: self-refreshes once and adopts the result as the app's own token")
-    func refreshOAuthTokenIfNeededSelfRefreshesExpiredBorrowedCredential() async {
-        let refreshedTokens = OAuthTokens(accessToken: "self-refreshed-access", refreshToken: "self-refreshed-refresh", expiresAt: Date().addingTimeInterval(3600))
+    @Test("borrowed-expired-with-refreshToken: NEVER redeemed - rotating it would invalidate Claude Code's own copy server-side")
+    func refreshOAuthTokenIfNeededNeverRedeemsExpiredBorrowedCredential() async {
         let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT(
-            oauthRefreshResult: .success(refreshedTokens)
+            oauthRefreshResult: .success(OAuthTokens(accessToken: "must-not-appear", refreshToken: "x", expiresAt: Date().addingTimeInterval(3600)))
         )
         securityCLI.credential = BorrowedCredential(
             accessToken: "expired-borrowed-access",
@@ -530,12 +538,10 @@ struct TokenProviderTests {
 
         let usable = await provider.refreshOAuthTokenIfNeeded()
 
-        #expect(usable == true)
-        #expect(oauthService.refreshCallCount == 1)
-        #expect(oauthService.lastRefreshTokens?.accessToken == "expired-borrowed-access")
-        #expect(oauthService.lastRefreshTokens?.refreshToken == "expired-borrowed-refresh")
-        #expect(oauthStore.load() == refreshedTokens) // the app now owns a token set
-        #expect(provider.currentToken() == "self-refreshed-access")
+        #expect(usable == false)
+        #expect(oauthService.refreshCallCount == 0) // another app's refresh token is never exchanged
+        #expect(oauthStore.load() == nil) // and nothing is adopted as our own
+        #expect(provider.currentToken() == nil) // expired borrowed source is simply unusable
     }
 
     @Test("borrowed-expired-no-refreshToken: an expired borrowed credential with no refresh token is not redeemable")
@@ -554,30 +560,26 @@ struct TokenProviderTests {
         #expect(oauthStore.load() == nil)
     }
 
-    @Test("borrowed-near-expiry-with-refresh: served as usable AND proactively refreshed once, currentToken never nil across the transition")
-    func refreshOAuthTokenIfNeededProactivelyRefreshesNearExpiryBorrowedCredential() async {
-        let refreshedTokens = OAuthTokens(accessToken: "proactive-refreshed-access", refreshToken: "proactive-refreshed-refresh", expiresAt: Date().addingTimeInterval(3600))
+    @Test("borrowed-near-expiry-with-refresh: served as-is until hard expiry, never proactively rotated")
+    func refreshOAuthTokenIfNeededNeverRotatesNearExpiryBorrowedCredential() async {
         let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT(
-            oauthRefreshResult: .success(refreshedTokens)
+            oauthRefreshResult: .success(OAuthTokens(accessToken: "must-not-appear", refreshToken: "x", expiresAt: Date().addingTimeInterval(3600)))
         )
-        // Not yet expired (60s ahead) but inside the 300s refresh margin, with a refresh token.
+        // Not yet expired (60s ahead), inside the 300s refresh margin, with a refresh token.
         securityCLI.credential = BorrowedCredential(
             accessToken: "near-expiry-borrowed-access",
             refreshToken: "near-expiry-borrowed-refresh",
             expiresAt: Date().addingTimeInterval(60)
         )
 
-        // Still-usable: served directly before any refresh - never nil.
         #expect(provider.currentToken() == "near-expiry-borrowed-access")
 
         let usable = await provider.refreshOAuthTokenIfNeeded()
 
-        #expect(usable == true)
-        #expect(oauthService.refreshCallCount == 1) // exactly one proactive refresh
-        #expect(oauthService.lastRefreshTokens?.accessToken == "near-expiry-borrowed-access")
-        #expect(oauthService.lastRefreshTokens?.refreshToken == "near-expiry-borrowed-refresh")
-        #expect(oauthStore.load() == refreshedTokens) // the app now owns a token set
-        #expect(provider.currentToken() == "proactive-refreshed-access") // never nil across the transition
+        #expect(usable == false) // the app owns no OAuth token set
+        #expect(oauthService.refreshCallCount == 0) // Claude Code's refresh token stays untouched
+        #expect(oauthStore.load() == nil)
+        #expect(provider.currentToken() == "near-expiry-borrowed-access") // still served while valid
     }
 
     @Test("a hard-expired higher-priority renewable source is NOT rotated when a healthy lower-priority source is served")
@@ -681,6 +683,121 @@ struct TokenProviderTests {
 
         #expect(refreshed == false)
         #expect(oauthService.refreshCallCount == 0)
+    }
+
+    // MARK: - OAuth refresh failure backoff (no token-endpoint hammer)
+
+    @Test("a 4xx refresh failure marks the refresh token dead - later ticks make no further network attempts")
+    func deadRefreshTokenStopsFurtherAttempts() async {
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "dead-refresh", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(400))
+        )
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(oauthService.refreshCallCount == 1)
+
+        // Every later tick: zero token-endpoint traffic until the user re-authorizes.
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(await provider.handleUnauthorizedOAuth() == false)
+        #expect(oauthService.refreshCallCount == 1)
+    }
+
+    @Test("a transient refresh failure backs off instead of retrying every tick, then retries after the window")
+    func transientRefreshFailureBacksOff() async {
+        let clock = TestClock()
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(-1)),
+            now: { clock.now }
+        )
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(oauthService.refreshCallCount == 1)
+
+        // Inside the backoff window: no network from either path.
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(await provider.handleUnauthorizedOAuth() == false)
+        #expect(oauthService.refreshCallCount == 1)
+
+        // Past the first 60s window: one more attempt is allowed.
+        clock.now = clock.now.addingTimeInterval(61)
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 2)
+    }
+
+    @Test("a 429 refresh failure is transient (backs off) rather than a dead token")
+    func rateLimitedRefreshBacksOffButRetriesLater() async {
+        let clock = TestClock()
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(429)),
+            now: { clock.now }
+        )
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(oauthService.refreshCallCount == 1)
+
+        clock.now = clock.now.addingTimeInterval(61)
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 2) // retried, not permanently dead
+    }
+
+    @Test("a successful refresh resets the backoff ladder")
+    func successResetsBackoffLadder() async throws {
+        let clock = TestClock()
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(-1)),
+            now: { clock.now }
+        )
+
+        // Failure #1 arms a 60s window.
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 1)
+
+        // Past the window, the retry succeeds and must reset the ladder.
+        clock.now = clock.now.addingTimeInterval(61)
+        oauthService.stubbedRefreshResult = .success(OAuthTokens(accessToken: "fresh-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600)))
+        #expect(await provider.refreshOAuthTokenIfNeeded() == true)
+        #expect(oauthService.refreshCallCount == 2)
+
+        // Put a near-expiry token set back and fail again: the next window must
+        // be the initial 60s, not the doubled 120s a non-reset ladder would use.
+        try oauthStore.save(OAuthTokens(accessToken: "stale-again", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60)))
+        provider.invalidateToken()
+        oauthService.stubbedRefreshResult = .failure(.refreshFailed(-1))
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 3)
+
+        clock.now = clock.now.addingTimeInterval(61)
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 4) // 61s > 60s window -> allowed
+    }
+
+    @Test("completeOAuthLogin clears the dead-refresh-token gate so a fresh login refreshes normally")
+    func completeOAuthLoginClearsRefreshGate() async throws {
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "dead-refresh", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(400))
+        )
+
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 1) // gate is now dead
+
+        // User re-authorizes: a brand-new near-expiry token set is saved.
+        try provider.completeOAuthLogin(OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(60)))
+        oauthService.stubbedRefreshResult = .success(OAuthTokens(accessToken: "renewed-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600)))
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == true)
+        #expect(oauthService.refreshCallCount == 2) // the gate no longer blocks
+        #expect(provider.currentToken() == "renewed-access")
     }
 
     @Test("refreshTokenIfChanged is a no-op and reads no borrowed source while OAuth tokens exist")

@@ -23,12 +23,14 @@ final class OAuthTokenStore: OAuthTokenStoreProtocol {
     // MARK: - Protocol Methods
 
     func load() -> OAuthTokens? {
+        // kSecUseAuthenticationUISkip is the VALUE for the kSecUseAuthenticationUI
+        // key: automatic reads must stay silent (never pop a Keychain dialog).
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
             kSecReturnData as String: true,
-            kSecUseAuthenticationUISkip as String: true
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
         ]
 
         var result: CFTypeRef?
@@ -51,8 +53,7 @@ final class OAuthTokenStore: OAuthTokenStoreProtocol {
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
             kSecValueData as String: encodedData,
-            kSecAttrAccessible as String: Self.accessibleAttribute,
-            kSecUseAuthenticationUISkip as String: true
+            kSecAttrAccessible as String: Self.accessibleAttribute
         ]
 
         // Try to update existing item first.
@@ -64,14 +65,18 @@ final class OAuthTokenStore: OAuthTokenStoreProtocol {
 
         let updateStatus = SecItemUpdate(updateQuery as CFDictionary, attributes as CFDictionary)
 
-        if updateStatus == errSecItemNotFound {
-            // Item doesn't exist; create it.
-            let createStatus = SecItemAdd(attributes as CFDictionary, nil)
-            guard createStatus == errSecSuccess else {
-                throw OAuthTokenStoreError.keychainWriteFailed(createStatus)
-            }
-        } else if updateStatus != errSecSuccess {
-            throw OAuthTokenStoreError.keychainWriteFailed(updateStatus)
+        if updateStatus == errSecSuccess { return }
+
+        // Any other failure (item missing, or an ACL mismatch after the app's
+        // code signature changed - local ad-hoc builds re-sign on every
+        // update): recreate the item so the current binary owns its ACL and
+        // silent loads keep working.
+        if updateStatus != errSecItemNotFound {
+            _ = SecItemDelete(updateQuery as CFDictionary)
+        }
+        let createStatus = SecItemAdd(attributes as CFDictionary, nil)
+        guard createStatus == errSecSuccess else {
+            throw OAuthTokenStoreError.keychainWriteFailed(createStatus)
         }
     }
 

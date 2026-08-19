@@ -12,6 +12,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     private let keychainReader: KeychainTokenReader
     private let oauthService: OAuthServiceProtocol
     private let oauthTokenStore: OAuthTokenStoreProtocol
+    private let now: () -> Date
 
     /// In-memory token cache - avoids hitting the Keychain on every refresh.
     /// Cleared on 401 (token expired) via `invalidateToken()` and on
@@ -36,7 +37,8 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         keychainReader: KeychainTokenReader? = nil,
         oauthService: OAuthServiceProtocol = OAuthService(),
         oauthTokenStore: OAuthTokenStoreProtocol = OAuthTokenStore(),
-        oauthImportFileURL: URL? = nil
+        oauthImportFileURL: URL? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.securityCLIReader = securityCLIReader
         self.credentialsFileReader = credentialsFileReader
@@ -45,6 +47,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         self.keychainReader = keychainReader ?? Self.defaultKeychainReader
         self.oauthService = oauthService
         self.oauthTokenStore = oauthTokenStore
+        self.now = now
         Self.importPendingOAuthTokensIfNeeded(
             fileURL: oauthImportFileURL ?? Self.defaultOAuthImportFileURL(),
             store: oauthTokenStore
@@ -53,35 +56,26 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
 
     var isBootstrapped: Bool { true }
 
-    /// Whether any usable-or-recoverable token source exists. A credential the
-    /// readers can parse is only counted when it is not hard-expired, or is
-    /// expired but carries a refresh token (recoverable via
-    /// `attemptBorrowedRefresh`), so onboarding never reports "Claude Code
-    /// detected" for a fully-dead, non-refreshable source that
-    /// `currentToken()` would then resolve to nil.
+    /// Whether any usable token source exists. A borrowed credential is only
+    /// counted while it is not hard-expired: borrowed refresh tokens are never
+    /// redeemed (see `firstUsableBorrowedCredential`), so an expired credential
+    /// resolves to nil in `currentToken()` and onboarding must not report
+    /// "Claude Code detected" for it.
     ///
     /// The config.json source stays a presence check (`readEncryptedToken`)
     /// rather than a decrypt-and-inspect, so a present Claude Desktop config
     /// is never hidden just because its decryption key hasn't been loaded
-    /// yet. A config credential that decrypts to a dead, non-refreshable
-    /// token is therefore still counted here - a narrower version of the
-    /// same inconsistency, deferred.
+    /// yet. A config credential that decrypts to a dead token is therefore
+    /// still counted here - a narrower version of the same inconsistency,
+    /// deferred.
     func hasTokenSource() -> Bool {
         if oauthTokenStore.load() != nil { return true }
         if cachedToken != nil { return true }
-        if isUsableOrRecoverable(securityCLIReader.readCredential()) { return true }
-        if isUsableOrRecoverable(credentialsFileReader.readCredential()) { return true }
+        if securityCLIReader.readCredential()?.isExpired() == false { return true }
+        if credentialsFileReader.readCredential()?.isExpired() == false { return true }
         if configReader.readEncryptedToken() != nil { return true }
         if keychainReader(true) != nil { return true }
         return false
-    }
-
-    /// A borrowed credential counts as a token source when it is either still
-    /// usable (not hard-expired) or expired-but-renewable (has a refresh
-    /// token). A fully-dead, non-refreshable credential does not.
-    private func isUsableOrRecoverable(_ credential: BorrowedCredential?) -> Bool {
-        guard let credential else { return false }
-        return !credential.isExpired() || credential.refreshToken != nil
     }
 
     /// Returns the current token. This is synchronous and never touches the
@@ -117,51 +111,18 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
 
     /// Proactively refreshes the OAuth token when it's near expiry. Callers
     /// await this once per refresh tick before reading the token so a
-    /// near-expiry token is renewed ahead of the fetch. When the app owns no
-    /// OAuth tokens yet, falls through to the borrow-and-self-refresh path
-    /// (see `attemptBorrowedRefresh`) instead of being a pure no-op.
+    /// near-expiry token is renewed ahead of the fetch. Borrowed sources are
+    /// strictly read-only - their refresh tokens belong to Claude Code /
+    /// Claude Desktop and redeeming one would invalidate it server-side for
+    /// that app (refresh tokens rotate on use), so with no app-owned tokens
+    /// this is a pure no-op returning false.
     func refreshOAuthTokenIfNeeded() async -> Bool {
-        guard let tokens = oauthTokenStore.load() else {
-            return await attemptBorrowedRefresh()
-        }
+        guard let tokens = oauthTokenStore.load() else { return false }
         guard tokens.needsRefresh() else {
             cachedToken = tokens.accessToken
             return true
         }
         return await performOAuthRefresh(tokens)
-    }
-
-    /// Borrow-and-self-refresh: runs only when the app owns no OAuth tokens at
-    /// all. Redeems a borrowed credential's refresh token once and persists
-    /// the result into the app's own store, so the app now owns a token set
-    /// going forward. Fires in two cases, both surfaced by
-    /// `selectBorrowedSource()` as the `refreshCandidate`:
-    ///
-    /// - Proactive: the credential currently being served is within the
-    ///   refresh margin (near expiry) and renewable. The still-usable token
-    ///   keeps being served throughout (this never returns nil mid-window);
-    ///   the renewal just moves the app onto its own token set ahead of the
-    ///   lapse, closing the transient dead-cache window a purely reactive
-    ///   refresh would leave.
-    /// - Fallback: nothing on the borrowed chain is currently usable, but the
-    ///   highest-priority hard-expired source still carries a refresh token.
-    ///
-    /// A healthy served token (not near expiry) is never rotated, and a
-    /// dormant higher-priority source is never rotated while a live borrowed
-    /// token is being served. Rotation happens at most once per borrowed
-    /// credential: exchanging its refresh token invalidates it server-side for
-    /// whichever app minted it (Claude Code / Claude Desktop), so that app
-    /// would need its own next login to recover. Accepted cost of borrowing.
-    private func attemptBorrowedRefresh() async -> Bool {
-        guard let credential = selectBorrowedSource().refreshCandidate,
-              let refreshToken = credential.refreshToken,
-              let expiresAt = credential.expiresAt
-        else {
-            return false
-        }
-        let synthesized = OAuthTokens(accessToken: credential.accessToken, refreshToken: refreshToken, expiresAt: expiresAt)
-        logger.info("Refreshing a borrowed token into an app-owned token set")
-        return await performOAuthRefresh(synthesized)
     }
 
     /// Forces one OAuth refresh after a 401, regardless of local expiry: the
@@ -173,26 +134,85 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         return await performOAuthRefresh(tokens)
     }
 
+    // MARK: - Refresh Failure Gate
+
+    /// Backoff state for token-endpoint refresh exchanges, guarded by
+    /// `cacheLock`. Without it, a dead refresh token turns every tick into
+    /// 1-2 token-endpoint POSTs (proactive + 401 handler) forever - enough to
+    /// trip Anthropic's account-level login rate limit and block the user's
+    /// own re-authorization ("you have reached the rate limit for login").
+    private var _refreshTokenDead = false
+    private var _consecutiveRefreshFailures = 0
+    private var _refreshRetryAt: Date?
+
+    /// Transient-failure ladder: 60s doubling to a 1h cap.
+    private static let refreshBackoffBase: TimeInterval = 60
+    private static let refreshBackoffCap: TimeInterval = 3600
+
+    /// Whether a refresh exchange may hit the network right now.
+    private func refreshGateAllows() -> Bool {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if _refreshTokenDead { return false }
+        if let retryAt = _refreshRetryAt, now() < retryAt { return false }
+        return true
+    }
+
+    /// Records a refresh outcome. A definitive 4xx (except 429) means the
+    /// refresh token is dead - invalid_grant or revoked - and retrying can
+    /// never succeed, so the gate closes until a new login or disconnect.
+    /// Everything else (transport failure, 5xx, 429) is transient and backs
+    /// off exponentially.
+    private func noteRefreshOutcome(_ result: Result<OAuthTokens, OAuthError>) {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        switch result {
+        case .success:
+            _refreshTokenDead = false
+            _consecutiveRefreshFailures = 0
+            _refreshRetryAt = nil
+        case .failure(let error):
+            if case .refreshFailed(let status) = error, (400...499).contains(status), status != 429 {
+                _refreshTokenDead = true
+                logger.info("OAuth refresh rejected (\(status)) - refresh token is dead, stopping automatic retries")
+                return
+            }
+            _consecutiveRefreshFailures += 1
+            let exponent = Double(_consecutiveRefreshFailures - 1)
+            let delay = min(Self.refreshBackoffBase * pow(2, exponent), Self.refreshBackoffCap)
+            _refreshRetryAt = now().addingTimeInterval(delay)
+            logger.info("OAuth refresh failed transiently - backing off \(Int(delay))s")
+        }
+    }
+
+    /// Reopens the gate after the stored token set changes (fresh login or
+    /// sign-out): the failure history belonged to the previous refresh token.
+    private func resetRefreshGate() {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        _refreshTokenDead = false
+        _consecutiveRefreshFailures = 0
+        _refreshRetryAt = nil
+    }
+
     /// Runs one OAuth refresh exchange, awaiting the completion-based
     /// `oauthService.refresh` via a checked continuation - no run-loop pump,
-    /// no semaphore. The new tokens are saved to the store inside the
-    /// completion so a slow-but-successful refresh can never be dropped by a
-    /// timeout. On success the in-memory cache is updated so the next
-    /// `currentToken()` returns the fresh access token. A failure leaves the
-    /// stored tokens untouched (the access token keeps being served until a
-    /// hard 401).
+    /// no semaphore. Skipped without network while the failure gate is closed
+    /// (dead refresh token, or inside a transient backoff window). The new
+    /// tokens are saved to the store inside the completion so a
+    /// slow-but-successful refresh can never be dropped by a timeout. On
+    /// success the in-memory cache is updated so the next `currentToken()`
+    /// returns the fresh access token. A failure leaves the stored tokens
+    /// untouched (the access token keeps being served until a hard 401).
     private func performOAuthRefresh(_ tokens: OAuthTokens) async -> Bool {
-        let refreshed: OAuthTokens? = await withCheckedContinuation { continuation in
-            oauthService.refresh(tokens) { result in
+        guard refreshGateAllows() else { return false }
+        let result: Result<OAuthTokens, OAuthError> = await withCheckedContinuation { continuation in
+            self.oauthService.refresh(tokens) { result in
                 if case .success(let newTokens) = result {
                     try? self.oauthTokenStore.save(newTokens)
-                    continuation.resume(returning: newTokens)
-                } else {
-                    continuation.resume(returning: nil)
                 }
+                continuation.resume(returning: result)
             }
         }
-        guard let refreshed else {
+        noteRefreshOutcome(result)
+        guard case .success(let refreshed) = result else {
             logger.info("OAuth refresh failed - keeping existing access token")
             return false
         }
@@ -206,45 +226,24 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// system - an expired source is skipped in favor of a live one further
     /// down the chain rather than being returned as-is.
     private func readFromSources() -> String? {
-        selectBorrowedSource().usable?.accessToken
-    }
-
-    /// The result of walking the borrowed-source chain: the credential safe
-    /// to serve right now (if any) and, separately, a credential eligible for
-    /// an OAuth refresh exchange.
-    private struct BorrowedSelection {
-        /// Safe to serve immediately: not expired, or carries no expiry info.
-        let usable: BorrowedCredential?
-        /// Eligible for a one-time refresh exchange - either the served
-        /// source when it is within the refresh margin (proactive, so the
-        /// served token never lapses to nil between this tick and the next),
-        /// or, when nothing is usable at all, the highest-priority
-        /// hard-expired source that still carries a refresh token (fallback).
-        /// Never a healthy source, and never a source other than the one
-        /// being served while a usable one exists.
-        let refreshCandidate: BorrowedCredential?
+        firstUsableBorrowedCredential()?.accessToken
     }
 
     /// Walks the borrowed sources in priority order (`/usr/bin/security`,
     /// `.credentials.json`, Claude Desktop `config.json`, direct Keychain
-    /// read), skipping any credential whose `expiresAt` is already in the past
-    /// so a dead token never wins over a live one further down the chain -
-    /// this is the diagnosed bug fix: a long-expired Keychain item ahead of a
-    /// fresh Claude Desktop token used to win by virtue of being first.
+    /// read) and returns the first non-expired credential, skipping any whose
+    /// `expiresAt` is already in the past so a dead token never wins over a
+    /// live one further down the chain. The direct-Keychain last resort
+    /// carries no expiry information, so it is always usable when present.
     ///
-    /// The served credential is the first non-expired source. Its refresh
-    /// candidate is that same served source, but only when it is within the
-    /// refresh margin and renewable - so a still-usable near-expiry token gets
-    /// proactively renewed on the tick without ever being dropped, while a
-    /// healthy token is left untouched. Only when nothing on the chain is
-    /// usable does it fall back to the highest-priority hard-expired renewable
-    /// source, so a dormant source's refresh token is never rotated while any
-    /// live borrowed token exists. The direct-Keychain last resort carries no
-    /// expiry information, so it is always usable (and never a refresh
-    /// candidate) when present.
-    private func selectBorrowedSource() -> BorrowedSelection {
-        var expiredRefreshCandidate: BorrowedCredential?
-
+    /// Strictly read-only: a borrowed credential's refresh token is NEVER
+    /// exchanged. Refresh tokens rotate on use, so redeeming one invalidates
+    /// it for the app that minted it (Claude Code / Claude Desktop) - that
+    /// app's next refresh then trips the server's reuse detection, both token
+    /// families die, and the resulting re-login storm hits Anthropic's login
+    /// rate limit. An expired borrowed source simply resolves to nil until
+    /// its owner refreshes it.
+    private func firstUsableBorrowedCredential() -> BorrowedCredential? {
         // Each source is read at its own call site (not collected into a
         // literal array first) so a hit on an earlier source short-circuits
         // before a later source's work runs - notably, config.json decryption
@@ -252,35 +251,21 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         // produced a usable credential.
         func consider(_ label: String, _ credential: BorrowedCredential?) -> BorrowedCredential? {
             guard let credential else { return nil }
-            if !credential.isExpired() {
-                logger.info("Token read via \(label, privacy: .public)")
-                return credential
+            guard !credential.isExpired() else {
+                logger.info("Skipping expired borrowed token from \(label, privacy: .public)")
+                return nil
             }
-            logger.info("Skipping expired borrowed token from \(label, privacy: .public)")
-            if expiredRefreshCandidate == nil, credential.refreshToken != nil {
-                expiredRefreshCandidate = credential
-            }
-            return nil
+            logger.info("Token read via \(label, privacy: .public)")
+            return credential
         }
 
-        let served =
-            consider("/usr/bin/security", securityCLIReader.readCredential())
+        return consider("/usr/bin/security", securityCLIReader.readCredential())
             ?? consider(".credentials.json", credentialsFileReader.readCredential())
             ?? consider("config.json", credentialFromConfigJSON())
             ?? keychainReader(true).map { token in
                 logger.info("Token read from Keychain (silent)")
                 return BorrowedCredential(accessToken: token, refreshToken: nil, expiresAt: nil)
             }
-
-        if let served {
-            // Proactively renew only the SERVED source, and only within
-            // margin, so a healthy token is never rotated and the served
-            // token never lapses to nil between this tick and the next.
-            let candidate = (served.needsRefresh(margin: 300) && served.refreshToken != nil) ? served : nil
-            return BorrowedSelection(usable: served, refreshCandidate: candidate)
-        }
-
-        return BorrowedSelection(usable: nil, refreshCandidate: expiredRefreshCandidate)
     }
 
     /// Re-reads the token from its sources and updates the cache when it
@@ -346,6 +331,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     func disconnectOAuth() {
         oauthTokenStore.clear()
         cachedToken = nil
+        resetRefreshGate()
         logger.info("OAuth disconnected - falling back to borrowed token sources")
     }
 
@@ -357,6 +343,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     func completeOAuthLogin(_ tokens: OAuthTokens) throws {
         try oauthTokenStore.save(tokens)
         cachedToken = tokens.accessToken
+        resetRefreshGate()
         logger.info("OAuth login completed - tokens saved to app-owned store")
     }
 
