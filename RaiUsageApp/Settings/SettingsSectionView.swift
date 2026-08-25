@@ -6,10 +6,6 @@ struct SettingsSectionView: View {
     @EnvironmentObject private var updateStore: UpdateStore
     @EnvironmentObject private var remoteInstancesStore: RemoteInstancesStore
 
-    @State private var isImporting = false
-    @State private var importMessage: String?
-    @State private var importSuccess = false
-
     // Add-instance form fields for the Remote sessions section.
     @State private var newRemoteNickname = ""
     @State private var newRemoteHost = ""
@@ -65,18 +61,6 @@ struct SettingsSectionView: View {
                      ? String(localized: "settings.connected")
                      : String(localized: "settings.disconnected"))
                 Spacer()
-                if isImporting {
-                    ProgressView().controlSize(.small)
-                }
-                Button(String(localized: "settings.redetect")) {
-                    connectAutoDetect()
-                }
-                .buttonStyle(.borderless)
-            }
-            if let message = importMessage {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(importSuccess ? DS.Pastel.green : DS.Pastel.amber)
             }
             if usageStore.errorState == .rateLimited {
                 VStack(alignment: .leading, spacing: 3) {
@@ -511,30 +495,6 @@ struct SettingsSectionView: View {
         (presets.contains(current) ? presets : presets + [current]).sorted()
     }
 
-    private func connectAutoDetect() {
-        isImporting = true
-        importMessage = nil
-        guard settingsStore.credentialsTokenExists() else {
-            isImporting = false
-            importMessage = String(localized: "connect.noclaudecode")
-            importSuccess = false
-            return
-        }
-        Task {
-            let result = await usageStore.connectAutoDetect()
-            isImporting = false
-            if result.success {
-                importMessage = String(localized: "connect.oauth.success")
-                importSuccess = true
-                usageStore.proxyConfig = settingsStore.proxyConfig
-                usageStore.reloadConfig(thresholds: settingsStore.thresholds)
-            } else {
-                importMessage = result.message
-                importSuccess = false
-            }
-        }
-    }
-
     private func signOutOfClaude() {
         connectFlow.signOut()
         usageStore.handleTokenChange()
@@ -543,11 +503,9 @@ struct SettingsSectionView: View {
 
     // MARK: - Sign in with Claude
 
-    /// Durable own-login management, below the existing borrowed-token status
-    /// row: connected state (account email + Sign out) when the app owns an
-    /// OAuth login, otherwise the primary "Sign in with Claude" CTA plus the
-    /// labeled secondary "Use Claude Code's session" borrow path and the
-    /// browser-waiting / manual-paste / error states.
+    /// Durable own-login management: connected state (account email + Sign
+    /// out) when the app owns an OAuth login, otherwise the "Sign in with
+    /// Claude" CTA plus the browser-waiting / manual-paste / error states.
     @ViewBuilder
     private var signInWithClaudeBlock: some View {
         if connectFlow.isSignedInWithClaude {
@@ -576,25 +534,14 @@ struct SettingsSectionView: View {
             VStack(alignment: .leading, spacing: 8) {
                 switch connectFlow.oauthSignInStatus {
                 case .idle:
-                    HStack(spacing: 10) {
-                        Button {
-                            connectFlow.signInWithClaude()
-                        } label: {
-                            Label(String(localized: "connect.signin.title"), systemImage: "person.badge.key.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(DS.Pastel.green)
-                        .controlSize(.small)
-
-                        Button(String(localized: "connect.secondary.title")) {
-                            connectAutoDetect()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    Button {
+                        connectFlow.signInWithClaude()
+                    } label: {
+                        Label(String(localized: "connect.signin.title"), systemImage: "person.badge.key.fill")
                     }
-                    Text(String(localized: "connect.secondary.subtitle"))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    .buttonStyle(.borderedProminent)
+                    .tint(DS.Pastel.green)
+                    .controlSize(.small)
 
                 case .browserOpenedWaiting:
                     HStack(spacing: 8) {

@@ -8,9 +8,7 @@ enum NotificationStatus {
     case notYetAsked
 }
 
-/// State machine for the "Sign in with Claude" own-OAuth-login flow, as
-/// distinct from the borrowed Claude Code session flow driven by
-/// `UsageStore.connectAutoDetect()`.
+/// State machine for the "Sign in with Claude" OAuth login flow.
 enum OAuthSignInStatus: Equatable {
     case idle
     /// The browser was opened and the loopback listener is waiting for the
@@ -54,8 +52,7 @@ final class OnboardingViewModel: ObservableObject {
         self.oauthService = oauthService
     }
 
-    /// Whether the app currently owns a durable "Sign in with Claude" login,
-    /// as opposed to only a borrowed Claude Code/Desktop token.
+    /// Whether the app currently owns a durable "Sign in with Claude" login.
     var isSignedInWithClaude: Bool { tokenProvider.hasOwnOAuthLogin() }
 
     func checkNotificationStatus() {
@@ -123,8 +120,7 @@ final class OnboardingViewModel: ObservableObject {
         isSubmittingManualCode = false
     }
 
-    /// Signs out of the app-owned OAuth login. The app falls back to a
-    /// borrowed Claude Code/Desktop token on the next read, if one exists.
+    /// Signs out of the app-owned OAuth login.
     func signOut() {
         tokenProvider.disconnectOAuth()
         oauthSignInStatus = .idle

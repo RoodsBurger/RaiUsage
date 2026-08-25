@@ -155,9 +155,9 @@ final class UsageStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Proactively renew the app-owned OAuth token if it's near expiry,
-        // BEFORE reading the token for this fetch, so the tick self-refreshes.
-        // No-op for borrowed sources. Guarded by `isLoading` against re-entry.
+        // Proactively renew the OAuth token if it's near expiry, BEFORE
+        // reading the token for this fetch, so the tick self-refreshes.
+        // Guarded by `isLoading` against re-entry.
         _ = await tokenProvider.refreshOAuthTokenIfNeeded()
 
         // Read the (possibly just-renewed) token for the fetch.
@@ -174,9 +174,8 @@ final class UsageStore: ObservableObject {
             lastAPIError = error.diagnosticSnapshot
             switch error {
             case .tokenExpired, .noToken:
-                // Force an OAuth refresh (network) for our own tokens; no-op for
-                // borrowed sources. Then invalidate the cache so the retry reads
-                // the renewed OAuth token or a re-read borrowed one.
+                // Force an OAuth refresh (network), then invalidate the cache
+                // so the retry reads the renewed token.
                 _ = await tokenProvider.handleUnauthorizedOAuth()
                 tokenProvider.invalidateToken()
                 // Retry once with a fresh token
@@ -238,31 +237,13 @@ final class UsageStore: ObservableObject {
         fastModeStart = Date()
     }
 
-    /// Called when the token file changes on disk or the user taps "Retry now".
+    /// Called after a fresh login and when the user taps "Retry now".
     /// Invalidates the cached token so the next refresh reads a fresh one,
     /// and clears the rate-limit backoff so the refresh actually fires.
     func handleTokenChange() {
         tokenProvider.invalidateToken()
         retryAfterDate = nil
         switchToFastMode()
-    }
-
-    /// Detects an OAuth token rotation that the file watcher cannot see: on
-    /// modern macOS the active token lives in the Keychain, so a `cswap` /
-    /// `claude login` account swap rotates it with no filesystem event and the
-    /// cached token (hence the displayed usage and plan badge) keeps belonging
-    /// to the previous account until a 401. Polling the token source on each
-    /// auto-refresh tick closes that gap. When a rotation is detected, the
-    /// stale state is dropped: clear the rate-limit backoff, force a profile
-    /// re-fetch, and switch to fast mode so the new account's data shows up
-    /// promptly. Returns true when the caller should force a usage refresh.
-    func reconcileTokenIfChanged() -> Bool {
-        guard tokenProvider.refreshTokenIfChanged() else { return false }
-        retryAfterDate = nil
-        consecutiveRateLimits = 0
-        lastProfileFetch = nil
-        switchToFastMode()
-        return true
     }
 
     func loadCached() {
@@ -299,11 +280,7 @@ final class UsageStore: ObservableObject {
             if let self { await self.refreshProfile() }
             while !Task.isCancelled {
                 guard let self else { return }
-                // Catch account swaps (cswap / claude login) the file watcher
-                // misses because the token rotates in the Keychain.
-                let rotated = self.reconcileTokenIfChanged()
-                await self.refresh(thresholds: thresholds, force: rotated)
-                if rotated { await self.refreshProfile() }
+                await self.refresh(thresholds: thresholds)
                 let delay = self.effectiveInterval
                 try? await Task.sleep(for: .seconds(delay))
             }
@@ -316,31 +293,6 @@ final class UsageStore: ObservableObject {
 
     func reauthenticate() async {
         await refresh(force: true)
-    }
-
-    func testConnection() async -> ConnectionTestResult {
-        guard let token = tokenProvider.currentToken() else {
-            return ConnectionTestResult(success: false, message: String(localized: "error.notoken"))
-        }
-        do {
-            _ = try await repository.testConnection(token: token, proxyConfig: proxyConfig)
-            return ConnectionTestResult(success: true, message: "OK")
-        } catch {
-            return ConnectionTestResult(success: false, message: error.localizedDescription)
-        }
-    }
-
-    func connectAutoDetect() async -> ConnectionTestResult {
-        guard let token = tokenProvider.currentToken() else {
-            return ConnectionTestResult(success: false, message: String(localized: "error.notoken"))
-        }
-        do {
-            _ = try await repository.testConnection(token: token, proxyConfig: proxyConfig)
-            hasConfig = true
-            return ConnectionTestResult(success: true, message: "OK")
-        } catch {
-            return ConnectionTestResult(success: false, message: error.localizedDescription)
-        }
     }
 
     private var lastProfileFetch: Date?

@@ -4,6 +4,129 @@ import Foundation
 @Suite("OAuthTokenStore")
 struct OAuthTokenStoreTests {
 
+    // MARK: - File Store Helpers
+
+    /// A store rooted in a unique temp file, with no legacy Keychain unless
+    /// the test injects one. Never touches the real Keychain or home dir.
+    private func makeFileStore(
+        legacy: OAuthTokenStore.LegacyKeychain = .none
+    ) throws -> (OAuthTokenStore, URL, URL) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OAuthTokenStoreTests-\(UUID().uuidString)")
+        let fileURL = dir.appendingPathComponent("oauth-tokens.json")
+        return (OAuthTokenStore(fileURL: fileURL, legacyKeychain: legacy), fileURL, dir)
+    }
+
+    private static let sampleTokens = OAuthTokens(
+        accessToken: "file-access",
+        refreshToken: "file-refresh",
+        expiresAt: Date(timeIntervalSince1970: 1783980000)
+    )
+
+    // MARK: - File Store
+
+    @Test("save then load round-trips through the file")
+    func fileSaveLoadRoundTrip() throws {
+        let (store, _, dir) = try makeFileStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try store.save(Self.sampleTokens)
+
+        #expect(store.load() == Self.sampleTokens)
+    }
+
+    @Test("load returns nil when no file and no legacy item exist")
+    func fileLoadEmpty() throws {
+        let (store, _, _) = try makeFileStore()
+        #expect(store.load() == nil)
+    }
+
+    @Test("saved token file is user-only (0600)")
+    func fileSavePermissions() throws {
+        let (store, fileURL, dir) = try makeFileStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try store.save(Self.sampleTokens)
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue
+        #expect(perms == 0o600)
+    }
+
+    @Test("save overwrites the previous token set")
+    func fileSaveOverwrite() throws {
+        let (store, _, dir) = try makeFileStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try store.save(Self.sampleTokens)
+        let newer = OAuthTokens(accessToken: "newer-access", refreshToken: "newer-refresh", expiresAt: Date(timeIntervalSince1970: 1784000000))
+        try store.save(newer)
+
+        #expect(store.load() == newer)
+    }
+
+    @Test("clear removes the file and deletes the legacy Keychain item")
+    func fileClearRemovesFileAndLegacy() throws {
+        var legacyDeleted = false
+        let legacy = OAuthTokenStore.LegacyKeychain(load: { nil }, delete: { legacyDeleted = true })
+        let (store, fileURL, dir) = try makeFileStore(legacy: legacy)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try store.save(Self.sampleTokens)
+        store.clear()
+
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
+        #expect(store.load() == nil)
+        #expect(legacyDeleted == true)
+    }
+
+    @Test("a corrupt token file loads as nil rather than crashing")
+    func fileCorruptLoadsNil() throws {
+        let (store, fileURL, dir) = try makeFileStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: fileURL)
+
+        #expect(store.load() == nil)
+    }
+
+    // MARK: - Legacy Keychain Migration
+
+    @Test("load migrates a legacy Keychain item into the file and deletes the item")
+    func migratesLegacyKeychainItem() throws {
+        var legacyDeleted = false
+        let legacyData = try OAuthTokenStore.encode(Self.sampleTokens)
+        let legacy = OAuthTokenStore.LegacyKeychain(
+            load: { legacyData },
+            delete: { legacyDeleted = true }
+        )
+        let (store, fileURL, dir) = try makeFileStore(legacy: legacy)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let loaded = store.load()
+
+        #expect(loaded == Self.sampleTokens)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == true) // persisted to file
+        #expect(legacyDeleted == true) // keychain item retired after successful write
+    }
+
+    @Test("once migrated, load reads the file without consulting the legacy item")
+    func migrationRunsOnce() throws {
+        var legacyLoadCount = 0
+        let legacyData = try OAuthTokenStore.encode(Self.sampleTokens)
+        let legacy = OAuthTokenStore.LegacyKeychain(
+            load: { legacyLoadCount += 1; return legacyData },
+            delete: {}
+        )
+        let (store, _, dir) = try makeFileStore(legacy: legacy)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        _ = store.load() // migrates
+        _ = store.load() // file hit
+
+        #expect(legacyLoadCount == 1)
+    }
+
     // MARK: - Codec Tests
 
     @Test("Codec decodes the epoch-seconds fixture byte-compatibly")

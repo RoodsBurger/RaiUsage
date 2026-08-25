@@ -6,8 +6,14 @@ struct TokenProviderTests {
 
     // MARK: - Helpers
 
-    /// keychainReader that always returns nil (no Keychain in tests)
-    private static let noKeychain: TokenProvider.KeychainTokenReader = { _ in nil }
+    /// A per-call, guaranteed-nonexistent import file path. Every `TokenProvider`
+    /// construction in this suite must pass an explicit import URL (never the
+    /// real default) so tests never touch the real filesystem.
+    private static var noImportFileURL: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("TokenProviderTests-\(UUID().uuidString)")
+            .appendingPathComponent("oauth-import.json")
+    }
 
     /// Mutable clock injected as TokenProvider's `now` so backoff tests can
     /// advance time deterministically.
@@ -15,41 +21,11 @@ struct TokenProviderTests {
         var now = Date()
     }
 
-    /// A per-call, guaranteed-nonexistent import file path. Every `TokenProvider`
-    /// construction in this suite must pass an explicit import URL (never the
-    /// real default) so tests never touch the real filesystem or Keychain.
-    private static var noImportFileURL: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("TokenProviderTests-\(UUID().uuidString)")
-            .appendingPathComponent("oauth-import.json")
-    }
-
     private func makeSUT(
-        securityCLIToken: String? = nil,
-        credentialsToken: String? = nil,
-        keychainToken: String? = nil,
-        encryptedToken: String? = nil,
-        hasEncryptionKey: Bool = false,
-        decryptedData: Data? = nil,
         oauthTokens: OAuthTokens? = nil,
         oauthRefreshResult: Result<OAuthTokens, OAuthError> = .failure(.cancelled),
         now: (() -> Date)? = nil
-    ) -> (TokenProvider, MockSecurityCLIReader, MockCredentialsFileReader, MockClaudeConfigReader, MockElectronDecryptionService, MockOAuthTokenStore, MockOAuthService) {
-        let securityCLI = MockSecurityCLIReader()
-        securityCLI.token = securityCLIToken
-
-        let credentials = MockCredentialsFileReader()
-        credentials.storedToken = credentialsToken
-
-        let configReader = MockClaudeConfigReader()
-        configReader.encryptedToken = encryptedToken
-
-        let decryption = MockElectronDecryptionService()
-        decryption._hasEncryptionKey = hasEncryptionKey
-        decryption.decryptedData = decryptedData
-
-        let keychainReader: TokenProvider.KeychainTokenReader = { _ in keychainToken }
-
+    ) -> (TokenProvider, MockOAuthTokenStore, MockOAuthService) {
         let oauthStore = MockOAuthTokenStore()
         if let oauthTokens {
             try? oauthStore.save(oauthTokens)
@@ -59,403 +35,35 @@ struct TokenProviderTests {
         oauthService.stubbedRefreshResult = oauthRefreshResult
 
         let provider = TokenProvider(
-            securityCLIReader: securityCLI,
-            credentialsFileReader: credentials,
-            configReader: configReader,
-            decryptionService: decryption,
-            keychainReader: keychainReader,
             oauthService: oauthService,
             oauthTokenStore: oauthStore,
             oauthImportFileURL: Self.noImportFileURL,
             now: now ?? Date.init
         )
 
-        return (provider, securityCLI, credentials, configReader, decryption, oauthStore, oauthService)
+        return (provider, oauthStore, oauthService)
     }
 
-    // MARK: - Tests
-
-    @Test("security CLI is the primary source")
-    func securityCLIFirst() {
-        let (provider, securityCLI, _, _, decryption, _, _) = makeSUT(
-            securityCLIToken: "security-token",
-            credentialsToken: "creds-token",
-            keychainToken: "keychain-token",
-            encryptedToken: "some-encrypted",
-            hasEncryptionKey: true
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "security-token")
-        #expect(securityCLI.readCredentialCallCount == 1) // currentToken reads the credential, not the bare token
-        #expect(decryption.decryptCallCount == 0)
-    }
-
-    @Test("falls back to credentials file when security CLI returns nil")
-    func fallbackToCredentialsFile() {
-        let (provider, _, _, _, decryption, _, _) = makeSUT(
-            securityCLIToken: nil,
-            credentialsToken: "creds-token",
-            keychainToken: "keychain-token"
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "creds-token")
-        #expect(decryption.decryptCallCount == 0)
-    }
-
-    @Test("falls back to keychain when security CLI and credentials file miss")
-    func fallbackToKeychain() {
-        let (provider, _, _, _, decryption, _, _) = makeSUT(
-            securityCLIToken: nil,
-            credentialsToken: nil,
-            keychainToken: "keychain-token"
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "keychain-token")
-        #expect(decryption.decryptCallCount == 0)
-    }
-
-    @Test("falls back to config.json decryption when earlier sources miss")
-    func fallbackToConfigDecryption() {
-        let oauthJSON: [String: Any] = [
-            "claudeAiOauth": ["accessToken": "decrypted-token"]
-        ]
-        let jsonData = try! JSONSerialization.data(withJSONObject: oauthJSON)
-
-        let (provider, _, _, _, decryption, _, _) = makeSUT(
-            securityCLIToken: nil,
-            credentialsToken: nil,
-            keychainToken: nil,
-            encryptedToken: "encrypted-blob",
-            hasEncryptionKey: true,
-            decryptedData: jsonData
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "decrypted-token")
-        #expect(decryption.decryptCallCount == 1)
-    }
-
-    @Test("extracts token from UUID-based config.json format")
-    func extractsUUIDFormat() {
-        let uuidJSON: [String: Any] = [
-            "uuid:uuid:https://api.anthropic.com": ["token": "sk-ant-test-only-no-real-secret"]
-        ]
-        let jsonData = try! JSONSerialization.data(withJSONObject: uuidJSON)
-
-        let (provider, _, _, _, _, _, _) = makeSUT(
-            securityCLIToken: nil,
-            credentialsToken: nil,
-            keychainToken: nil,
-            encryptedToken: "encrypted-blob",
-            hasEncryptionKey: true,
-            decryptedData: jsonData
-        )
-
-        #expect(provider.currentToken() == "sk-ant-test-only-no-real-secret")
-    }
-
-    @Test("returns nil when no source available")
-    func returnsNilWhenNoSource() {
-        let (provider, _, _, _, _, _, _) = makeSUT()
-
-        #expect(provider.currentToken() == nil)
-    }
-
-    @Test("isBootstrapped is always true")
-    func isBootstrappedAlwaysTrue() {
-        let (provider, _, _, _, _, _, _) = makeSUT(hasEncryptionKey: false)
-        #expect(provider.isBootstrapped == true)
-    }
-
-    @Test("hasTokenSource returns true when security CLI has token")
-    func hasTokenSourceViaSecurityCLI() {
-        let (provider, _, _, _, _, _, _) = makeSUT(securityCLIToken: "some-token")
-        #expect(provider.hasTokenSource() == true)
-    }
-
-    @Test("hasTokenSource returns true when keychain has token")
-    func hasTokenSourceViaKeychain() {
-        let (provider, _, _, _, _, _, _) = makeSUT(keychainToken: "some-token")
-        #expect(provider.hasTokenSource() == true)
-    }
-
-    @Test("hasTokenSource returns false when nothing available")
-    func hasTokenSourceReturnsFalse() {
-        let (provider, _, _, _, _, _, _) = makeSUT()
-        #expect(provider.hasTokenSource() == false)
-    }
-
-    @Test("hasTokenSource is false for a fully-expired, non-refreshable borrowed source (matches currentToken == nil)")
-    func hasTokenSourceExpiryAware() {
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "dead-access",
-            refreshToken: nil,
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-
-        #expect(provider.hasTokenSource() == false)
-        #expect(provider.currentToken() == nil) // the two agree - no phantom "detected"
-    }
-
-    @Test("hasTokenSource is false for an expired borrowed source even when it carries a refresh token (never redeemed)")
-    func hasTokenSourceExpiredRefreshableNotASource() {
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "dead-access",
-            refreshToken: "still-has-refresh",
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-
-        #expect(provider.hasTokenSource() == false)
-        #expect(provider.currentToken() == nil) // the two agree - no phantom "detected"
-    }
-
-    @Test("config.json decryption is tried before direct Keychain")
-    func configJsonBeforeKeychain() {
-        let oauthJSON: [String: Any] = [
-            "claudeAiOauth": ["accessToken": "config-token"]
-        ]
-        let jsonData = try! JSONSerialization.data(withJSONObject: oauthJSON)
-
-        var keychainWasCalled = false
-        let securityCLI = MockSecurityCLIReader()
-        let credentials = MockCredentialsFileReader()
-        credentials.storedToken = nil
-
-        let configReader = MockClaudeConfigReader()
-        configReader.encryptedToken = "encrypted-blob"
-
-        let decryption = MockElectronDecryptionService()
-        decryption._hasEncryptionKey = true
-        decryption.decryptedData = jsonData
-
-        let keychainReader: TokenProvider.KeychainTokenReader = { _ in
-            keychainWasCalled = true
-            return "keychain-token"
-        }
-
-        let provider = TokenProvider(
-            securityCLIReader: securityCLI,
-            credentialsFileReader: credentials,
-            configReader: configReader,
-            decryptionService: decryption,
-            keychainReader: keychainReader,
-            oauthService: MockOAuthService(),
-            oauthTokenStore: MockOAuthTokenStore(),
-            oauthImportFileURL: Self.noImportFileURL
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "config-token")
-        #expect(keychainWasCalled == false)
-    }
-
-    @Test("silent re-bootstrap recovers when decryption key is stale")
-    func silentRebootstrapRecovery() {
-        let oauthJSON: [String: Any] = [
-            "claudeAiOauth": ["accessToken": "recovered-token"]
-        ]
-        let jsonData = try! JSONSerialization.data(withJSONObject: oauthJSON)
-
-        let securityCLI = MockSecurityCLIReader()
-        let credentials = MockCredentialsFileReader()
-        let configReader = MockClaudeConfigReader()
-        configReader.encryptedToken = "encrypted-blob"
-
-        let decryption = MockElectronDecryptionService()
-        decryption._hasEncryptionKey = false // key not loaded initially
-        decryption.silentRebootstrapResult = true // but silent re-bootstrap works
-        decryption.decryptedData = jsonData
-
-        let provider = TokenProvider(
-            securityCLIReader: securityCLI,
-            credentialsFileReader: credentials,
-            configReader: configReader,
-            decryptionService: decryption,
-            keychainReader: { _ in nil },
-            oauthService: MockOAuthService(),
-            oauthTokenStore: MockOAuthTokenStore(),
-            oauthImportFileURL: Self.noImportFileURL
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "recovered-token")
-        #expect(decryption.silentRebootstrapCallCount == 1)
-        #expect(decryption.decryptCallCount == 1)
-    }
-
-    @Test("falls back to Keychain when config.json unavailable and re-bootstrap fails")
-    func fallbackToKeychainWhenConfigUnavailable() {
-        let securityCLI = MockSecurityCLIReader()
-        let credentials = MockCredentialsFileReader()
-        let configReader = MockClaudeConfigReader()
-        configReader.encryptedToken = nil // no config.json
-
-        let decryption = MockElectronDecryptionService()
-        decryption._hasEncryptionKey = false
-
-        let provider = TokenProvider(
-            securityCLIReader: securityCLI,
-            credentialsFileReader: credentials,
-            configReader: configReader,
-            decryptionService: decryption,
-            keychainReader: { _ in "keychain-fallback" },
-            oauthService: MockOAuthService(),
-            oauthTokenStore: MockOAuthTokenStore(),
-            oauthImportFileURL: Self.noImportFileURL
-        )
-
-        let token = provider.currentToken()
-
-        #expect(token == "keychain-fallback")
-    }
-
-    // MARK: - Skip-expired borrowed sources (Task 4b)
-
-    @Test("REGRESSION: an expired Keychain source is skipped for a fresh Claude Desktop token (the diagnosed real-world bug)")
-    func staleSourceSkippedInFavorOfFreshSource() {
-        let (provider, securityCLI, credentials, _, decryption, _, _) = makeSUT(
-            encryptedToken: "encrypted-blob",
-            hasEncryptionKey: true
-        )
-        // Source #1 (Claude Code Keychain item): expired 25 days ago, empty refresh token.
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "dead-source1-access",
-            refreshToken: nil,
-            expiresAt: Date().addingTimeInterval(-25 * 24 * 3600)
-        )
-        // Source #2 (.credentials.json): absent.
-        credentials.credential = nil
-        // Source #3 (Claude Desktop config.json): fresh and valid.
-        let freshConfigJSON: [String: Any] = [
-            "claudeAiOauth": [
-                "accessToken": "fresh-source3-access",
-                "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
-            ],
-        ]
-        decryption.decryptedData = try! JSONSerialization.data(withJSONObject: freshConfigJSON)
-
-        let token = provider.currentToken()
-
-        #expect(token == "fresh-source3-access")
-        #expect(token != "dead-source1-access") // the dead source-#1 token must never be returned
-    }
-
-    @Test("all borrowed sources expired -> currentToken returns nil")
-    func allSourcesExpiredReturnsNil() {
-        let (provider, securityCLI, credentials, _, _, _, _) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "expired-source1",
-            refreshToken: nil,
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-        credentials.credential = BorrowedCredential(
-            accessToken: "expired-source2",
-            refreshToken: "some-refresh-token",
-            expiresAt: Date().addingTimeInterval(-200)
-        )
-
-        #expect(provider.currentToken() == nil)
-    }
-
-    @Test("borrowed source with nil expiresAt is treated as usable (unchanged behavior)")
-    func nilExpiryTreatedAsUsable() {
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "unknown-expiry-access",
-            refreshToken: nil,
-            expiresAt: nil
-        )
-
-        #expect(provider.currentToken() == "unknown-expiry-access")
-    }
-
-    // MARK: - refreshTokenIfChanged (account swap detection)
-
-    @Test("refreshTokenIfChanged detects a rotated Keychain token and updates the cache")
-    func refreshTokenIfChangedDetectsRotation() {
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT(securityCLIToken: "tok-A")
-
-        // Prime the cache with account A's token.
-        #expect(provider.currentToken() == "tok-A")
-
-        // cswap rotates the Keychain item to account B's token.
-        securityCLI.token = "tok-B"
-
-        #expect(provider.refreshTokenIfChanged() == true)
-        #expect(provider.currentToken() == "tok-B")
-    }
-
-    @Test("refreshTokenIfChanged returns false when the token is unchanged")
-    func refreshTokenIfChangedNoChange() {
-        let (provider, _, _, _, _, _, _) = makeSUT(securityCLIToken: "tok-A")
-
-        #expect(provider.currentToken() == "tok-A")
-        #expect(provider.refreshTokenIfChanged() == false)
-        #expect(provider.currentToken() == "tok-A")
-    }
-
-    @Test("refreshTokenIfChanged keeps the cached token when all sources momentarily miss")
-    func refreshTokenIfChangedKeepsCacheOnTransientMiss() {
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT(securityCLIToken: "tok-A")
-
-        #expect(provider.currentToken() == "tok-A")
-
-        // A transient read failure (no source available) must not drop a
-        // working token.
-        securityCLI.token = nil
-        #expect(provider.refreshTokenIfChanged() == false)
-        #expect(provider.currentToken() == "tok-A")
-    }
-
-    @Test("refreshTokenIfChanged treats first population as not-a-rotation")
-    func refreshTokenIfChangedFirstReadIsNotRotation() {
-        let (provider, _, _, _, _, _, _) = makeSUT(securityCLIToken: "tok-A")
-
-        // No prior currentToken() call, so the cache is empty: the first read
-        // establishes a baseline rather than signalling a swap.
-        #expect(provider.refreshTokenIfChanged() == false)
-    }
-
-    // MARK: - OAuth source 0
-
-    @Test("OAuth tokens take priority over the borrowed source chain")
-    func oauthSourceWinsOverBorrowedSources() {
-        let freshTokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, securityCLI, _, _, _, _, oauthService) = makeSUT(
-            securityCLIToken: "security-cli-token",
-            oauthTokens: freshTokens
-        )
+    // MARK: - currentToken
+
+    @Test("currentToken returns the stored access token")
+    func currentTokenFromStore() {
+        let tokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "r", expiresAt: Date().addingTimeInterval(3600))
+        let (provider, _, _) = makeSUT(oauthTokens: tokens)
 
         #expect(provider.currentToken() == "oauth-access")
-        #expect(securityCLI.readCallCount == 0)
-        #expect(securityCLI.readCredentialCallCount == 0)
-        #expect(oauthService.refreshCallCount == 0)
     }
 
-    @Test("hasTokenSource returns true when OAuth tokens are present")
-    func hasTokenSourceViaOAuth() {
-        let tokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "oauth-refresh", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, _, _) = makeSUT(oauthTokens: tokens)
-
-        #expect(provider.hasTokenSource() == true)
+    @Test("currentToken returns nil when signed out")
+    func currentTokenNilWhenSignedOut() {
+        let (provider, _, _) = makeSUT()
+        #expect(provider.currentToken() == nil)
     }
 
-    @Test("currentToken returns the stored OAuth access token near expiry without touching the network")
+    @Test("currentToken returns the stored access token near expiry without touching the network")
     func currentTokenNearExpiryIsNonBlocking() {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
-        let (provider, securityCLI, _, _, _, _, oauthService) = makeSUT(
-            securityCLIToken: "should-not-be-used",
+        let (provider, _, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .success(OAuthTokens(accessToken: "fresh-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600)))
         )
@@ -464,15 +72,15 @@ struct TokenProviderTests {
         // stored access token as-is. The async path renews it.
         #expect(provider.currentToken() == "stale-access")
         #expect(oauthService.refreshCallCount == 0)
-        #expect(securityCLI.readCallCount == 0)
-        #expect(securityCLI.readCredentialCallCount == 0)
     }
+
+    // MARK: - refreshOAuthTokenIfNeeded
 
     @Test("refreshOAuthTokenIfNeeded renews a near-expiry token exactly once and saves it")
     func refreshOAuthTokenIfNeededRenewsNearExpiry() async {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
         let refreshedTokens = OAuthTokens(accessToken: "fresh-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .success(refreshedTokens)
         )
@@ -488,7 +96,7 @@ struct TokenProviderTests {
     @Test("refreshOAuthTokenIfNeeded is a no-op for a fresh token")
     func refreshOAuthTokenIfNeededSkipsFreshToken() async {
         let freshTokens = OAuthTokens(accessToken: "fresh-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(oauthTokens: freshTokens)
+        let (provider, _, oauthService) = makeSUT(oauthTokens: freshTokens)
 
         let usable = await provider.refreshOAuthTokenIfNeeded()
 
@@ -496,121 +104,20 @@ struct TokenProviderTests {
         #expect(oauthService.refreshCallCount == 0)
     }
 
-    @Test("refreshOAuthTokenIfNeeded is a no-op returning false with no token source anywhere")
+    @Test("refreshOAuthTokenIfNeeded is a no-op returning false when signed out")
     func refreshOAuthTokenIfNeededNoOpWithoutTokens() async {
-        let (provider, _, _, _, _, _, oauthService) = makeSUT()
+        let (provider, _, oauthService) = makeSUT()
 
         let usable = await provider.refreshOAuthTokenIfNeeded()
 
         #expect(usable == false)
         #expect(oauthService.refreshCallCount == 0)
-    }
-
-    // MARK: - Borrowed sources are read-only (never rotated)
-
-    @Test("borrowed-valid-access: a still-valid borrowed credential is returned directly and never rotated")
-    func refreshOAuthTokenIfNeededDoesNotRotateValidBorrowedAccess() async {
-        let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "borrowed-access",
-            refreshToken: "borrowed-refresh",
-            expiresAt: Date().addingTimeInterval(3600) // nowhere near the refresh margin
-        )
-
-        let usable = await provider.refreshOAuthTokenIfNeeded()
-
-        #expect(usable == false) // the app still has no OWN token, only a borrowed one
-        #expect(oauthService.refreshCallCount == 0) // read-only use never rotates a still-valid borrowed token
-        #expect(oauthStore.load() == nil)
-        #expect(provider.currentToken() == "borrowed-access")
-    }
-
-    @Test("borrowed-expired-with-refreshToken: NEVER redeemed - rotating it would invalidate Claude Code's own copy server-side")
-    func refreshOAuthTokenIfNeededNeverRedeemsExpiredBorrowedCredential() async {
-        let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT(
-            oauthRefreshResult: .success(OAuthTokens(accessToken: "must-not-appear", refreshToken: "x", expiresAt: Date().addingTimeInterval(3600)))
-        )
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "expired-borrowed-access",
-            refreshToken: "expired-borrowed-refresh",
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-
-        let usable = await provider.refreshOAuthTokenIfNeeded()
-
-        #expect(usable == false)
-        #expect(oauthService.refreshCallCount == 0) // another app's refresh token is never exchanged
-        #expect(oauthStore.load() == nil) // and nothing is adopted as our own
-        #expect(provider.currentToken() == nil) // expired borrowed source is simply unusable
-    }
-
-    @Test("borrowed-expired-no-refreshToken: an expired borrowed credential with no refresh token is not redeemable")
-    func refreshOAuthTokenIfNeededDoesNotSelfRefreshWithoutRefreshToken() async {
-        let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT()
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "dead-borrowed-access",
-            refreshToken: nil,
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-
-        let usable = await provider.refreshOAuthTokenIfNeeded()
-
-        #expect(usable == false)
-        #expect(oauthService.refreshCallCount == 0)
-        #expect(oauthStore.load() == nil)
-    }
-
-    @Test("borrowed-near-expiry-with-refresh: served as-is until hard expiry, never proactively rotated")
-    func refreshOAuthTokenIfNeededNeverRotatesNearExpiryBorrowedCredential() async {
-        let (provider, securityCLI, _, _, _, oauthStore, oauthService) = makeSUT(
-            oauthRefreshResult: .success(OAuthTokens(accessToken: "must-not-appear", refreshToken: "x", expiresAt: Date().addingTimeInterval(3600)))
-        )
-        // Not yet expired (60s ahead), inside the 300s refresh margin, with a refresh token.
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "near-expiry-borrowed-access",
-            refreshToken: "near-expiry-borrowed-refresh",
-            expiresAt: Date().addingTimeInterval(60)
-        )
-
-        #expect(provider.currentToken() == "near-expiry-borrowed-access")
-
-        let usable = await provider.refreshOAuthTokenIfNeeded()
-
-        #expect(usable == false) // the app owns no OAuth token set
-        #expect(oauthService.refreshCallCount == 0) // Claude Code's refresh token stays untouched
-        #expect(oauthStore.load() == nil)
-        #expect(provider.currentToken() == "near-expiry-borrowed-access") // still served while valid
-    }
-
-    @Test("a hard-expired higher-priority renewable source is NOT rotated when a healthy lower-priority source is served")
-    func healthyServedSourceSuppressesRotationOfExpiredHigherPrioritySource() async {
-        let (provider, securityCLI, credentials, _, _, oauthStore, oauthService) = makeSUT()
-        // Source #1: hard-expired but WITH a refresh token.
-        securityCLI.credential = BorrowedCredential(
-            accessToken: "expired-hp-access",
-            refreshToken: "expired-hp-refresh",
-            expiresAt: Date().addingTimeInterval(-100)
-        )
-        // Source #2: healthy, well clear of the refresh margin.
-        credentials.credential = BorrowedCredential(
-            accessToken: "healthy-lp-access",
-            refreshToken: "healthy-lp-refresh",
-            expiresAt: Date().addingTimeInterval(3600)
-        )
-
-        #expect(provider.currentToken() == "healthy-lp-access")
-
-        let usable = await provider.refreshOAuthTokenIfNeeded()
-
-        #expect(usable == false) // a healthy served token needs no refresh
-        #expect(oauthService.refreshCallCount == 0) // and the dormant higher-priority source is never rotated
-        #expect(oauthStore.load() == nil)
     }
 
     @Test("refreshOAuthTokenIfNeeded failure keeps the stored token untouched")
     func refreshOAuthTokenIfNeededFailureKeepsToken() async {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .failure(.refreshFailed(500))
         )
@@ -627,7 +134,7 @@ struct TokenProviderTests {
     func refreshOAuthTokenIfNeededAwaitsDelayedCompletion() async {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
         let refreshedTokens = OAuthTokens(accessToken: "fresh-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .success(refreshedTokens)
         )
@@ -642,12 +149,14 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "fresh-access")
     }
 
+    // MARK: - handleUnauthorizedOAuth
+
     @Test("handleUnauthorizedOAuth forces a refresh regardless of expiry and saves it")
     func handleUnauthorizedOAuthForcesRefresh() async {
         // Token is NOT near expiry, yet a 401 means the server rejected it.
         let liveButRejected = OAuthTokens(accessToken: "old-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
         let newTokens = OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: liveButRejected,
             oauthRefreshResult: .success(newTokens)
         )
@@ -663,9 +172,9 @@ struct TokenProviderTests {
     @Test("handleUnauthorizedOAuth failure leaves the stored tokens untouched")
     func handleUnauthorizedOAuthFailureKeepsTokens() async {
         let oldTokens = OAuthTokens(accessToken: "old-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: oldTokens,
-            oauthRefreshResult: .failure(.refreshFailed(401))
+            oauthRefreshResult: .failure(.refreshFailed(500))
         )
 
         let refreshed = await provider.handleUnauthorizedOAuth()
@@ -675,9 +184,9 @@ struct TokenProviderTests {
         #expect(oauthStore.load() == oldTokens) // nothing persisted on failure
     }
 
-    @Test("handleUnauthorizedOAuth is a no-op returning false with no OAuth tokens")
+    @Test("handleUnauthorizedOAuth is a no-op returning false when signed out")
     func handleUnauthorizedOAuthNoOpWithoutTokens() async {
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(securityCLIToken: "borrowed")
+        let (provider, _, oauthService) = makeSUT()
 
         let refreshed = await provider.handleUnauthorizedOAuth()
 
@@ -687,10 +196,10 @@ struct TokenProviderTests {
 
     // MARK: - OAuth refresh failure backoff (no token-endpoint hammer)
 
-    @Test("a 4xx refresh failure marks the refresh token dead - later ticks make no further network attempts")
+    @Test("a 400/401 refresh failure marks the refresh token dead - later ticks make no further network attempts")
     func deadRefreshTokenStopsFurtherAttempts() async {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "dead-refresh", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+        let (provider, _, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .failure(.refreshFailed(400))
         )
@@ -704,11 +213,30 @@ struct TokenProviderTests {
         #expect(oauthService.refreshCallCount == 1)
     }
 
+    @Test("a 403 refresh failure is transient (rate-limiter ambiguity), never a dead token")
+    func forbiddenRefreshIsTransientNotDead() async {
+        let clock = TestClock()
+        let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, oauthService) = makeSUT(
+            oauthTokens: staleTokens,
+            oauthRefreshResult: .failure(.refreshFailed(403)),
+            now: { clock.now }
+        )
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false) // inside backoff window
+        #expect(oauthService.refreshCallCount == 1)
+
+        clock.now = clock.now.addingTimeInterval(61)
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(oauthService.refreshCallCount == 2) // retried after the window
+    }
+
     @Test("a transient refresh failure backs off instead of retrying every tick, then retries after the window")
     func transientRefreshFailureBacksOff() async {
         let clock = TestClock()
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+        let (provider, _, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .failure(.refreshFailed(-1)),
             now: { clock.now }
@@ -732,7 +260,7 @@ struct TokenProviderTests {
     func rateLimitedRefreshBacksOffButRetriesLater() async {
         let clock = TestClock()
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+        let (provider, _, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .failure(.refreshFailed(429)),
             now: { clock.now }
@@ -751,7 +279,7 @@ struct TokenProviderTests {
     func successResetsBackoffLadder() async throws {
         let clock = TestClock()
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: staleTokens,
             oauthRefreshResult: .failure(.refreshFailed(-1)),
             now: { clock.now }
@@ -783,9 +311,9 @@ struct TokenProviderTests {
     @Test("completeOAuthLogin clears the dead-refresh-token gate so a fresh login refreshes normally")
     func completeOAuthLoginClearsRefreshGate() async throws {
         let staleTokens = OAuthTokens(accessToken: "stale-access", refreshToken: "dead-refresh", expiresAt: Date().addingTimeInterval(60))
-        let (provider, _, _, _, _, _, oauthService) = makeSUT(
+        let (provider, _, oauthService) = makeSUT(
             oauthTokens: staleTokens,
-            oauthRefreshResult: .failure(.refreshFailed(400))
+            oauthRefreshResult: .failure(.refreshFailed(401))
         )
 
         _ = await provider.refreshOAuthTokenIfNeeded()
@@ -800,31 +328,12 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "renewed-access")
     }
 
-    @Test("refreshTokenIfChanged is a no-op and reads no borrowed source while OAuth tokens exist")
-    func refreshTokenIfChangedIsNoOpWithOAuthTokens() {
-        let tokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, securityCLI, _, _, _, _, _) = makeSUT(
-            securityCLIToken: "work-account-token", // a DIFFERENT account's borrowed token
-            credentialsToken: "work-creds-token",
-            oauthTokens: tokens
-        )
-
-        // Prime the OAuth token into the cache the way an auto-refresh tick does.
-        #expect(provider.currentToken() == "oauth-access")
-
-        // The tick must NOT reconcile against - or even read - the borrowed
-        // chain (securityCLI is the first source in that chain), so the
-        // personal OAuth token can never be clobbered by the work account's.
-        #expect(provider.refreshTokenIfChanged() == false)
-        #expect(securityCLI.readCallCount == 0)
-        #expect(securityCLI.readCredentialCallCount == 0)
-        #expect(provider.currentToken() == "oauth-access")
-    }
+    // MARK: - invalidate / disconnect / login
 
     @Test("invalidateToken only clears the cache and never calls oauthService.refresh")
     func invalidateTokenDoesNotRefresh() {
         let tokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, oauthService) = makeSUT(
+        let (provider, oauthStore, oauthService) = makeSUT(
             oauthTokens: tokens,
             oauthRefreshResult: .success(OAuthTokens(accessToken: "should-not-appear", refreshToken: "x", expiresAt: Date().addingTimeInterval(3600)))
         )
@@ -836,27 +345,22 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "oauth-access")
     }
 
-    @Test("disconnectOAuth clears the store and cache, falling back to the borrowed source chain")
-    func disconnectOAuthFallsBackToBorrowedChain() {
+    @Test("disconnectOAuth clears the store and the cache")
+    func disconnectOAuthClearsEverything() {
         let tokens = OAuthTokens(accessToken: "oauth-access", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, oauthStore, _) = makeSUT(
-            securityCLIToken: "security-cli-token",
-            oauthTokens: tokens
-        )
+        let (provider, oauthStore, _) = makeSUT(oauthTokens: tokens)
 
         #expect(provider.currentToken() == "oauth-access")
 
         provider.disconnectOAuth()
 
         #expect(oauthStore.load() == nil)
-        #expect(provider.currentToken() == "security-cli-token")
+        #expect(provider.currentToken() == nil)
     }
-
-    // MARK: - completeOAuthLogin / hasOwnOAuthLogin (Sign in with Claude)
 
     @Test("completeOAuthLogin saves tokens to the store and caches the access token")
     func completeOAuthLoginSavesAndCaches() throws {
-        let (provider, _, _, _, _, oauthStore, _) = makeSUT()
+        let (provider, oauthStore, _) = makeSUT()
         let tokens = OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600))
 
         try provider.completeOAuthLogin(tokens)
@@ -867,7 +371,7 @@ struct TokenProviderTests {
 
     @Test("completeOAuthLogin propagates a store save failure and leaves the cache untouched")
     func completeOAuthLoginPropagatesSaveFailure() {
-        let (provider, _, _, _, _, oauthStore, _) = makeSUT(securityCLIToken: "security-cli-token")
+        let (provider, oauthStore, _) = makeSUT()
         struct SaveError: Error {}
         oauthStore.saveError = SaveError()
         let tokens = OAuthTokens(accessToken: "new-access", refreshToken: "new-refresh", expiresAt: Date().addingTimeInterval(3600))
@@ -876,21 +380,19 @@ struct TokenProviderTests {
             try provider.completeOAuthLogin(tokens)
         }
         #expect(oauthStore.load() == nil)
-        // Cache is untouched - the next read still falls through to the
-        // borrowed chain rather than serving the failed-to-persist token.
-        #expect(provider.currentToken() == "security-cli-token")
+        #expect(provider.currentToken() == nil)
     }
 
     @Test("hasOwnOAuthLogin is false when the app-owned store is empty")
     func hasOwnOAuthLoginFalseWhenEmpty() {
-        let (provider, _, _, _, _, _, _) = makeSUT()
+        let (provider, _, _) = makeSUT()
         #expect(provider.hasOwnOAuthLogin() == false)
     }
 
     @Test("hasOwnOAuthLogin is true once the app-owned store holds tokens")
     func hasOwnOAuthLoginTrueWhenPresent() {
         let tokens = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date().addingTimeInterval(3600))
-        let (provider, _, _, _, _, _, _) = makeSUT(oauthTokens: tokens)
+        let (provider, _, _) = makeSUT(oauthTokens: tokens)
         #expect(provider.hasOwnOAuthLogin() == true)
     }
 
@@ -912,11 +414,6 @@ struct TokenProviderTests {
 
         let oauthStore = MockOAuthTokenStore()
         _ = TokenProvider(
-            securityCLIReader: MockSecurityCLIReader(),
-            credentialsFileReader: MockCredentialsFileReader(),
-            configReader: MockClaudeConfigReader(),
-            decryptionService: MockElectronDecryptionService(),
-            keychainReader: { _ in nil },
             oauthService: MockOAuthService(),
             oauthTokenStore: oauthStore,
             oauthImportFileURL: importURL
@@ -933,11 +430,6 @@ struct TokenProviderTests {
 
         let oauthStore = MockOAuthTokenStore()
         _ = TokenProvider(
-            securityCLIReader: MockSecurityCLIReader(),
-            credentialsFileReader: MockCredentialsFileReader(),
-            configReader: MockClaudeConfigReader(),
-            decryptionService: MockElectronDecryptionService(),
-            keychainReader: { _ in nil },
             oauthService: MockOAuthService(),
             oauthTokenStore: oauthStore,
             oauthImportFileURL: importURL
@@ -957,11 +449,6 @@ struct TokenProviderTests {
 
         let oauthStore = MockOAuthTokenStore()
         _ = TokenProvider(
-            securityCLIReader: MockSecurityCLIReader(),
-            credentialsFileReader: MockCredentialsFileReader(),
-            configReader: MockClaudeConfigReader(),
-            decryptionService: MockElectronDecryptionService(),
-            keychainReader: { _ in nil },
             oauthService: MockOAuthService(),
             oauthTokenStore: oauthStore,
             oauthImportFileURL: importURL

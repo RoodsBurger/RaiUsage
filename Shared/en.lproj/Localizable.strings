@@ -55,7 +55,6 @@
 "settings.about.repository.hint" = "Browse the codebase on GitHub";
 "settings.connected" = "Connected";
 "settings.disconnected" = "Not connected";
-"settings.redetect" = "Re-detect";
 "settings.general.title" = "General";
 "settings.launchAtLogin" = "Launch at login";
 "settings.launchAtLogin.hint" = "Open RaiUsage automatically when you sign in to macOS. You can toggle this from System Settings → General → Login Items as well.";
@@ -68,8 +67,6 @@
 "settings.general.showCost.hint" = "Estimates model cost from published list prices — may differ from your actual bill.";
 
 /* Connect */
-"connect.oauth.success" = "Connected via Claude Code";
-"connect.noclaudecode" = "Claude Code not detected. Install it and sign in first.";
 
 /* Connect - Sign in with Claude (own OAuth login) */
 "connect.signin.title" = "Sign in with Claude";
@@ -81,8 +78,6 @@
 "connect.signin.cancel" = "Cancel";
 "connect.signin.success" = "Signed in with Claude";
 "connect.signin.signout" = "Sign out";
-"connect.secondary.title" = "Use Claude Code's session";
-"connect.secondary.subtitle" = "Borrow the token Claude Code already has signed in on this Mac";
 "connect.oauth.error.statemismatch" = "Sign-in didn't match - please try again.";
 "connect.oauth.error.malformedcallback" = "Couldn't read the authorization response. Try again or paste the code manually.";
 "connect.oauth.error.exchangefailed" = "Sign-in failed (status %d). Please try again.";

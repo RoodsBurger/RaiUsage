@@ -67,7 +67,7 @@ The script installs [XcodeGen](https://github.com/yonaskolb/XcodeGen) if missing
 Requires a **Pro, Max, or Team plan**.
 
 1. Open RaiUsage — the single-screen onboarding walks you through connecting
-2. Choose **Sign in with Claude** (an app-owned OAuth login that refreshes on its own), or **Use Claude Code's session** to borrow the token Claude Code already has on this Mac
+2. Click **Sign in with Claude** — an app-owned OAuth login that refreshes on its own and survives app updates
 
 ## Update
 
@@ -112,7 +112,7 @@ Shared/                  Shared code (services, stores, models, pacing)
   └── Helpers/           Pure functions (PacingCalculator, MenuBarRenderer, SmartColor)
 ```
 
-The app signs in via its own OAuth login or borrows Claude Code's token silently from the macOS Keychain (`kSecUseAuthenticationUISkip`), calls the Anthropic usage API, and writes results to a shared JSON file. A `TokenFileMonitor` watches the credential files with a `DispatchSource` filesystem watcher and triggers an immediate refresh.
+The app signs in via its own "Sign in with Claude" OAuth login, calls the Anthropic usage API, and writes results to a shared JSON file. Tokens refresh automatically ahead of expiry; failed refreshes back off exponentially instead of hammering the token endpoint.
 
 ## How it works
 
@@ -126,7 +126,7 @@ Returns `utilization` (0–100) and `resets_at` for each limit bucket.
 
 ## Security & Privacy
 
-RaiUsage authenticates with an **OAuth access token** — either its own "Sign in with Claude" login (stored in an app-owned keychain item it creates, so no ACL prompt) or, if you choose to borrow it, the same standard token Claude Code itself uses. When borrowing, macOS prompts you once to allow reading that keychain item; this is normal macOS behavior for any app reading a keychain item it didn't create.
+RaiUsage authenticates with an **OAuth access token** from its own "Sign in with Claude" login. It never touches Claude Code's or Claude Desktop's credentials — its login is a separate OAuth grant that cannot interfere with theirs.
 
 **What the app does with the token:**
 - Calls `GET /api/oauth/usage` (your current usage stats)
@@ -134,9 +134,9 @@ RaiUsage authenticates with an **OAuth access token** — either its own "Sign i
 
 **What the app cannot do:** send messages, read conversations, modify your account, or access anything beyond read-only usage data.
 
-The token never leaves your machine except for these two API calls to `api.anthropic.com`. It lives only in the Keychain and memory, never on disk; the shared JSON file holds usage numbers only.
+The token never leaves your machine except for these two API calls to `api.anthropic.com`. It is stored in `~/Library/Application Support/com.raiusage.auth/oauth-tokens.json` with user-only (0600) permissions — the same model Claude Code uses for its `~/.claude/.credentials.json`. A file (rather than a Keychain item) is what lets the login survive app updates: the app has no stable code-signing identity, so a Keychain item's access control breaks on every update. The shared JSON cache holds usage numbers only.
 
-The entire codebase is open source and auditable: token resolution is in [`TokenProvider.swift`](Shared/Services/TokenProvider.swift) and [`SecurityCLIReader.swift`](Shared/Services/SecurityCLIReader.swift), the OAuth login in [`OAuthService.swift`](Shared/Services/OAuthService.swift), API calls in [`APIClient.swift`](Shared/Services/APIClient.swift).
+The entire codebase is open source and auditable: token resolution is in [`TokenProvider.swift`](Shared/Services/TokenProvider.swift) and [`OAuthTokenStore.swift`](Shared/Services/OAuthTokenStore.swift), the OAuth login in [`OAuthService.swift`](Shared/Services/OAuthService.swift), API calls in [`APIClient.swift`](Shared/Services/APIClient.swift).
 
 ## Troubleshooting
 

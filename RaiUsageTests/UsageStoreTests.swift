@@ -558,27 +558,6 @@ struct UsageStoreTests {
         #expect(notif.permissionRequested == true)
     }
 
-    // MARK: - connectAutoDetect
-
-    @Test("connectAutoDetect sets hasConfig on success")
-    func connectAutoDetectSetsHasConfig() async {
-        let (store, _, _, _, _) = makeSUT()
-
-        let result = await store.connectAutoDetect()
-
-        #expect(result.success == true)
-        #expect(store.hasConfig == true)
-    }
-
-    @Test("connectAutoDetect does not set hasConfig on failure when no token")
-    func connectAutoDetectDoesNotSetHasConfigOnFailure() async {
-        let (store, _, _, _, _) = makeSUT(token: nil)
-
-        let result = await store.connectAutoDetect()
-
-        #expect(result.success == false)
-    }
-
     // MARK: - refreshProfile
 
     @Test("refreshProfile updates plan type")
@@ -673,42 +652,6 @@ struct UsageStoreTests {
         #expect(store.errorState == .none)
         #expect(store.fiveHourPct == 42)
         #expect(tokenProvider.invalidateCallCount == 1)
-    }
-
-    // MARK: - reconcileTokenIfChanged (account swap detection)
-
-    @Test("reconcileTokenIfChanged clears stale state and signals a forced refresh on swap")
-    func reconcileTokenIfChangedDetectsSwap() async {
-        let (store, _, tokenProvider, _, _) = makeSUT(
-            shouldFail: true,
-            failWith: .rateLimited(retryAfter: 3600, retryAfterRaw: "3600", endpoint: "/api/oauth/usage")
-        )
-
-        // Put the store into a rate-limited, backed-off state on account A.
-        await store.refresh()
-        #expect(store.retryAfterDate != nil)
-
-        // The underlying Keychain token rotates to account B.
-        tokenProvider.tokenDidChange = true
-
-        let rotated = store.reconcileTokenIfChanged()
-
-        #expect(rotated == true)
-        #expect(store.retryAfterDate == nil)
-        #expect(store.currentSpeed == .fast)
-        #expect(tokenProvider.refreshTokenIfChangedCallCount == 1)
-    }
-
-    @Test("reconcileTokenIfChanged is a no-op when the token is unchanged")
-    func reconcileTokenIfChangedNoChange() {
-        let (store, _, tokenProvider, _, _) = makeSUT()
-        tokenProvider.tokenDidChange = false
-
-        let rotated = store.reconcileTokenIfChanged()
-
-        #expect(rotated == false)
-        #expect(store.currentSpeed == .normal)
-        #expect(tokenProvider.refreshTokenIfChangedCallCount == 1)
     }
 
     // MARK: - OAuth autonomous refresh wiring

@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 6.4.11 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.5.0 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -32,7 +32,7 @@ Two targets:
 `Shared/` is compiled into both targets:
 
 - `Shared/Models/` - pure `Codable` structs and enums (UsageModels, ProfileModels, PacingModels, MetricModels, OAuthModels, VendorStatusModels, ProxyConfig, and the various display-format enums).
-- `Shared/Services/` - protocol-backed I/O. 15 services, most with a protocol in `Shared/Services/Protocols/` and a mock in `RaiUsageTests/Mocks/`.
+- `Shared/Services/` - protocol-backed I/O. 11 services, most with a protocol in `Shared/Services/Protocols/` and a mock in `RaiUsageTests/Mocks/`.
 - `Shared/Repositories/` - `UsageRepository` (orchestrates `APIClient` then `SharedFileService`).
 - `Shared/Stores/` - 10 `ObservableObject` state containers.
 - `Shared/Helpers/` - 15 pure enums/structs, no I/O (PacingCalculator, MenuBarRenderer, SmartColor, GaugeColorResolver, ChartDomainCalculator, CurrencyFormatter, TokenFormatter, MetricsGridLayout, NotificationBodyFormatter, DiagnosticReporter, ResetCountdownFormatter, RateLimitBackoff, ProcessResolver, PKCE, OAuthErrorFormatter).
@@ -47,7 +47,7 @@ The pattern is MV + Repository + protocol-oriented design, with `ObservableObjec
 Data flow:
 
 ```
-TokenProvider                resolves the OAuth token from several sources
+TokenProvider                serves the app-owned OAuth token (file-backed store)
    |
 UsageStore                   drives refresh, owns usage state, schedules auto-refresh
    |
@@ -57,22 +57,15 @@ UsageRepository              APIClient calls the usage/profile API, then
 ~/Library/Application Support/com.raiusage.shared/shared.json
 ```
 
-`TokenFileMonitor` watches the credential files with a `DispatchSource` filesystem watcher (kqueue/vnode) and triggers an immediate refresh on change.
-
 The menu bar is **AppKit `NSStatusItem`** managed by `StatusBarController`, not SwiftUI `MenuBarExtra`. The `App` body is `Settings { EmptyView() }`; the real UI is wired in the `AppDelegate` (`@NSApplicationDelegateAdaptor`) and hosted through `NSHostingController` / `NSHostingView`. That hosting root is where stores get injected with `.environmentObject(...)`. To add a store: construct it as a `private let` in `RaiUsageApp.init`, hand it to the `AppDelegate`, and inject it at the hosting root in `StatusBarController`.
 
 ### Token resolution (`TokenProvider`)
 
-All credential reading goes through `Shared/Services/TokenProvider.swift`. `currentToken()` returns an in-memory cached token; the disk/Keychain is re-read only when the cache is empty or after `invalidateToken()` (called on a 401). Source priority:
+Auth is single-mode: the app's own "Sign in with Claude" OAuth login (`OAuthService` + `OAuthTokenStore`, PKCE-backed). Borrowing Claude Code / Claude Desktop credentials was removed in 6.5.0 - serving another app's token invited expiry races, and its refresh token could never be redeemed safely (refresh tokens rotate on use, so a redemption invalidates the owner's copy and the reuse-detection fallout kills both token families - the source of the recurring login-rate-limit storms).
 
-1. `SecurityCLIReader` - shells out to `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w`. Primary path; the stable Apple signing identity means macOS stops prompting for ACL access after the first "Always Allow".
-2. `CredentialsFileReader` - reads `~/.claude/.credentials.json`.
-3. `ClaudeConfigReader` + `ElectronDecryptionService` - reads and decrypts the token from Claude Desktop's `config.json` (Electron `safeStorage`, AES-128-CBC).
-4. A direct `SecItemCopyMatching` Keychain read as a last resort.
+`TokenProvider.currentToken()` returns an in-memory cached access token; the store is re-read only when the cache is empty or after `invalidateToken()` (called on a 401). `refreshOAuthTokenIfNeeded()` (per tick) proactively renews a near-expiry token; `handleUnauthorizedOAuth()` forces one renewal after a 401. Refresh failures are gated: a definitive 400/401 marks the refresh token dead (no automatic retries until re-login), everything else - transport errors, 5xx, 429, ambiguous 403s - backs off exponentially (60s doubling, 1h cap). Never a token-endpoint request per tick.
 
-`refreshTokenIfChanged()` re-polls the sources on the auto-refresh tick to catch Keychain account swaps (`claude /login`, account switch) that emit no filesystem event. `bootstrap()` is the only interactive read and is used once during onboarding. There is no `KeychainService` type; Keychain access lives in `SecurityCLIReader` and the inline reader closure in `TokenProvider`.
-
-Auth has two modes: the app's own "Sign in with Claude" OAuth login (`OAuthService` + `OAuthTokenStore`, PKCE-backed) is the primary path, and borrowing the Claude Code / Desktop token via the source chain above is the fallback. Borrowed sources are strictly read-only: their refresh tokens are never exchanged (refresh tokens rotate on use, so redeeming one invalidates it for the app that minted it and the reuse-detection fallout kills both token families). An expired borrowed credential simply resolves to nil until its owner refreshes it. App-owned OAuth refresh failures are gated: a definitive 4xx marks the refresh token dead (no automatic retries until re-login), transient failures back off exponentially (60s doubling, 1h cap) - never a token-endpoint request per tick.
+`OAuthTokenStore` persists the tokens in `~/Library/Application Support/com.raiusage.auth/oauth-tokens.json` (0600, real home via `getpwuid`). A file rather than a Keychain item because the app has no stable code-signing identity (ad-hoc signatures change every build/update), so a Keychain item's ACL breaks on each update and silent reads start failing - which used to drop the login. A legacy Keychain item (`com.raiusage.oauth`, pre-6.5.0) is migrated into the file on first load, then deleted.
 
 ### Where to start reading
 
@@ -116,7 +109,7 @@ All are `@MainActor final class ...: ObservableObject`.
 | In-app updater | `Services/UpdateChecker.swift`, `Services/UpdateInstaller.swift`, `Stores/UpdateStore.swift`, `Helpers/UpdateVersion.swift`, the Updates section in `Settings/SettingsSectionView.swift` |
 | Onboarding | `Onboarding/OnboardingHeroView.swift`, `Onboarding/OnboardingViewModel.swift` |
 | Settings | `Settings/SettingsSectionView.swift`, `Settings/MenuBarSectionView.swift`, `Settings/PopoverSectionView.swift`, `Settings/SettingsSectionHelpers.swift` |
-| Token / auth | `Services/TokenProvider.swift`, `SecurityCLIReader.swift`, `CredentialsFileReader.swift`, `ClaudeConfigReader.swift`, `ElectronDecryptionService.swift`, `OAuthService.swift`, `OAuthTokenStore.swift`, `TokenFileMonitor.swift` |
+| Token / auth | `Services/TokenProvider.swift`, `OAuthService.swift`, `OAuthTokenStore.swift` |
 
 ## Hard SwiftUI rules (do not break)
 
@@ -141,7 +134,7 @@ Prerequisites: macOS 14+, XcodeGen (`brew install xcodegen`), and Xcode (see the
 
 ### Unit tests
 
-The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 685 `@Test` cases across 55 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
+The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 702 `@Test` cases across 59 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
 
 Run the tests (identical to CI):
 
@@ -191,7 +184,7 @@ Why each nuke step is needed:
 | Step | Reason |
 |------|--------|
 | `killall RaiUsage / NotificationCenter` | The app holds the old binary in memory. |
-| `rm -rf .../com.raiusage.shared` | Removes the shared JSON (token + usage cache) to start clean. |
+| `rm -rf .../com.raiusage.shared` | Removes the shared JSON usage cache to start clean. The login is NOT here: OAuth tokens live in `.../com.raiusage.auth`, deliberately outside the nuke so a reinstall never signs you out (add `rm -rf ~/Library/Application\ Support/com.raiusage.auth` only when you explicitly want a signed-out state). |
 | `rm -rf .../Group Containers/...` | Old group container (unused now, but can linger). |
 | `rm -rf /private/var/folders/.../com.raiusage.app` | Application cache to ensure clean state. |
 | `lsregister -f -R` | Forces LaunchServices to re-scan the `.app` so it does not keep old version metadata. |

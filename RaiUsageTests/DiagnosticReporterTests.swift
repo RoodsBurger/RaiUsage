@@ -23,7 +23,7 @@ struct DiagnosticReporterTests {
         if proxyEnabled {
             store.proxyConfig = ProxyConfig(enabled: true, host: "10.0.0.5", port: 1080)
         }
-        let settings = SettingsStore(notificationService: MockNotificationService(), tokenProvider: MockTokenProvider())
+        let settings = SettingsStore(notificationService: MockNotificationService())
         return (store, settings)
     }
 
@@ -43,7 +43,7 @@ struct DiagnosticReporterTests {
         )
         store.lastUpdate = lastUpdate
         await store.refresh(force: true)
-        let settings = SettingsStore(notificationService: MockNotificationService(), tokenProvider: MockTokenProvider())
+        let settings = SettingsStore(notificationService: MockNotificationService())
         return (store, settings)
     }
 

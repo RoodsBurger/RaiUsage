@@ -248,14 +248,11 @@ final class SettingsStore: ObservableObject {
     }
 
     private let notificationService: NotificationServiceProtocol
-    private let tokenProvider: TokenProviderProtocol
 
     init(
-        notificationService: NotificationServiceProtocol = NotificationService(),
-        tokenProvider: TokenProviderProtocol = TokenProvider()
+        notificationService: NotificationServiceProtocol = NotificationService()
     ) {
         self.notificationService = notificationService
-        self.tokenProvider = tokenProvider
 
         self.pacing = PacingSettingsStore()
         self.notification = NotificationSettingsStore()
@@ -334,12 +331,6 @@ final class SettingsStore: ObservableObject {
         if newStatus != notificationStatus {
             notificationStatus = newStatus
         }
-    }
-
-    // MARK: - Credentials
-
-    func credentialsTokenExists() -> Bool {
-        tokenProvider.currentToken() != nil
     }
 
     // MARK: - Launch at Login

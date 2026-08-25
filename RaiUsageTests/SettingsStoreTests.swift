@@ -22,20 +22,18 @@ struct SettingsStoreTests {
 
     // MARK: - Helpers
 
-    private func makeStore(
-        tokenProvider: MockTokenProvider = MockTokenProvider()
-    ) -> (SettingsStore, MockNotificationService, MockTokenProvider) {
+    private func makeStore() -> (SettingsStore, MockNotificationService) {
         cleanDefaults()
         let notif = MockNotificationService()
-        let store = SettingsStore(notificationService: notif, tokenProvider: tokenProvider)
-        return (store, notif, tokenProvider)
+        let store = SettingsStore(notificationService: notif)
+        return (store, notif)
     }
 
     // MARK: - Proxy Config
 
     @Test("proxyConfig reflects current values")
     func proxyConfigReflectsValues() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         store.proxyEnabled = true
         store.proxyHost = "10.0.0.1"
         store.proxyPort = 8080
@@ -48,7 +46,7 @@ struct SettingsStoreTests {
 
     @Test("proxyConfig returns defaults on fresh store")
     func proxyConfigDefaults() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
 
         let config = store.proxyConfig
         #expect(config.enabled == false)
@@ -60,7 +58,7 @@ struct SettingsStoreTests {
 
     @Test("toggleMetric adds a metric not in the set")
     func toggleMetricAdds() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         #expect(!store.pinnedMetrics.contains(.sonnet))
 
         store.toggleMetric(.sonnet)
@@ -69,7 +67,7 @@ struct SettingsStoreTests {
 
     @Test("toggleMetric removes metric when count > 1")
     func toggleMetricRemoves() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         #expect(store.pinnedMetrics.count == 2)
         #expect(store.pinnedMetrics.contains(.fiveHour))
 
@@ -79,7 +77,7 @@ struct SettingsStoreTests {
 
     @Test("toggleMetric does not remove last metric")
     func toggleMetricKeepsLast() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         store.pinnedMetrics = [.sonnet]
         #expect(store.pinnedMetrics.count == 1)
 
@@ -90,7 +88,7 @@ struct SettingsStoreTests {
 
     @Test("toggleMetric works with .weeklyPacing")
     func toggleMetricWeeklyPacing() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         #expect(!store.pinnedMetrics.contains(.weeklyPacing))
 
         store.toggleMetric(.weeklyPacing)
@@ -101,29 +99,12 @@ struct SettingsStoreTests {
         #expect(!store.pinnedMetrics.contains(.weeklyPacing))
     }
 
-    // MARK: - Credentials delegation
-
-    @Test("credentialsTokenExists delegates to token provider")
-    func credentialsTokenExistsDelegates() {
-        let tp = MockTokenProvider()
-        tp.token = "some-token"
-        let (store, _, _) = makeStore(tokenProvider: tp)
-
-        #expect(store.credentialsTokenExists() == true)
-    }
-
-    @Test("credentialsTokenExists returns false when no token")
-    func credentialsTokenExistsFalseWhenNoToken() {
-        let (store, _, _) = makeStore()
-
-        #expect(store.credentialsTokenExists() == false)
-    }
 
     // MARK: - Notification delegation
 
     @Test("requestNotificationPermission delegates to service")
     func requestNotificationPermissionDelegates() {
-        let (store, notif, _) = makeStore()
+        let (store, notif) = makeStore()
 
         store.requestNotificationPermission()
 
@@ -132,7 +113,7 @@ struct SettingsStoreTests {
 
     @Test("sendTestNotification delegates to service")
     func sendTestNotificationDelegates() {
-        let (store, notif, _) = makeStore()
+        let (store, notif) = makeStore()
 
         store.sendTestNotification()
 
@@ -141,7 +122,7 @@ struct SettingsStoreTests {
 
     @Test("refreshNotificationStatus updates status from service")
     func refreshNotificationStatusUpdates() async {
-        let (store, notif, _) = makeStore()
+        let (store, notif) = makeStore()
         notif.stubbedAuthStatus = .authorized
 
         await store.refreshNotificationStatus()
@@ -153,7 +134,7 @@ struct SettingsStoreTests {
 
     @Test("hasCompletedOnboarding persists to UserDefaults")
     func hasCompletedOnboardingPersists() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
 
         store.hasCompletedOnboarding = true
         #expect(UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") == true)
@@ -161,7 +142,7 @@ struct SettingsStoreTests {
 
     @Test("pinnedMetrics persists to UserDefaults")
     func pinnedMetricsPersists() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
 
         store.pinnedMetrics = [.sonnet, .weeklyPacing]
 
@@ -174,24 +155,24 @@ struct SettingsStoreTests {
 
     @Test("launchInBackground defaults to false")
     func launchInBackgroundDefaults() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         #expect(store.launchInBackground == false)
     }
 
     @Test("launchInBackground persists to UserDefaults")
     func launchInBackgroundPersists() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         store.launchInBackground = true
         #expect(UserDefaults.standard.object(forKey: "launchInBackground") as? Bool == true)
     }
 
     @Test("launchInBackground reads back on a fresh store instance")
     func launchInBackgroundReadsBack() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         store.launchInBackground = true
         // A new store built against the same UserDefaults picks the value up
         // (makeStore would wipe it, so construct directly here).
-        let fresh = SettingsStore(notificationService: MockNotificationService(), tokenProvider: MockTokenProvider())
+        let fresh = SettingsStore(notificationService: MockNotificationService())
         #expect(fresh.launchInBackground == true)
     }
 
@@ -199,7 +180,7 @@ struct SettingsStoreTests {
 
     @Test("service status settings default on, poll interval 300")
     func serviceStatusDefaults() {
-        let (store, _, _) = makeStore()
+        let (store, _) = makeStore()
         #expect(store.outageMonitoringEnabled == true)
         #expect(store.statusPollInterval == 300)
         #expect(store.statusShowMenuBarBadge == true)
@@ -209,9 +190,9 @@ struct SettingsStoreTests {
 
     @Test("statusPollInterval persists across store instances")
     func statusPollIntervalPersists() {
-        let (store, notif, tp) = makeStore()
+        let (store, notif) = makeStore()
         store.statusPollInterval = 900
-        let reloaded = SettingsStore(notificationService: notif, tokenProvider: tp)
+        let reloaded = SettingsStore(notificationService: notif)
         #expect(reloaded.statusPollInterval == 900)
     }
 

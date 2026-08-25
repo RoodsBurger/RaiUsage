@@ -55,7 +55,6 @@ final class StatusBarController: NSObject {
     private let activityStore: ActivityStore
     private let updateStore: UpdateStore
     private let remoteInstancesStore: RemoteInstancesStore
-    private let tokenFileMonitor: TokenFileMonitorProtocol
 
     init(
         usageStore: UsageStore,
@@ -63,8 +62,7 @@ final class StatusBarController: NSObject {
         vendorStatusStore: VendorStatusStore,
         activityStore: ActivityStore,
         updateStore: UpdateStore,
-        remoteInstancesStore: RemoteInstancesStore,
-        tokenFileMonitor: TokenFileMonitorProtocol = TokenFileMonitor()
+        remoteInstancesStore: RemoteInstancesStore
     ) {
         self.usageStore = usageStore
         self.settingsStore = settingsStore
@@ -72,7 +70,6 @@ final class StatusBarController: NSObject {
         self.activityStore = activityStore
         self.updateStore = updateStore
         self.remoteInstancesStore = remoteInstancesStore
-        self.tokenFileMonitor = tokenFileMonitor
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.statusItem.isVisible = settingsStore.showMenuBar
 
@@ -381,17 +378,6 @@ final class StatusBarController: NSObject {
         // Pull remote SSH instances on the same cadence; failures stay silent
         // (Settings status line only) and never block the usage refresh.
         remoteInstancesStore.startAutoSync(interval: TimeInterval(settingsStore.refreshInterval))
-
-        // Monitor token files (credentials + config.json) for changes
-        tokenFileMonitor.startMonitoring()
-        tokenFileMonitor.tokenChanged
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                guard let self else { return }
-                self.usageStore.handleTokenChange()
-                Task { await self.usageStore.refresh(force: true) }
-            }
-            .store(in: &cancellables)
 
         // Refresh after wake from sleep
         NSWorkspace.shared.notificationCenter.addObserver(

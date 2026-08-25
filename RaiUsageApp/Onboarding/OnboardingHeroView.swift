@@ -1,26 +1,17 @@
 import SwiftUI
 
 /// Single-screen onboarding: logo, title, caption, the "Sign in with Claude"
-/// connect flow (own OAuth login, or borrow Claude Code's session), and an
-/// optional notifications opt-in. Replaces the old 2x2 card deck. The chrome
-/// (solid dark window) is provided by `MainAppView.onboardingContent`; this
-/// view fills it edge to edge.
+/// connect flow, and an optional notifications opt-in. Replaces the old 2x2
+/// card deck. The chrome (solid dark window) is provided by
+/// `MainAppView.onboardingContent`; this view fills it edge to edge.
 struct OnboardingHeroView: View {
     @StateObject private var viewModel = OnboardingViewModel()
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var usageStore: UsageStore
 
-    /// Local state for the "Use Claude Code's session" borrow flow - kept
-    /// outside `OnboardingViewModel` since it drives `UsageStore.connectAutoDetect()`
-    /// directly, mirroring `SettingsSectionView`'s own connectAutoDetect wrapper.
-    @State private var isAutoDetecting = false
-    @State private var autoDetectMessage: String?
-    @State private var autoDetectSucceeded = false
-
-    /// True once either connect path has produced a usable token: an
-    /// app-owned OAuth login, or a successfully borrowed Claude Code session.
+    /// True once the connect flow has produced a usable login.
     private var isConnected: Bool {
-        viewModel.isSignedInWithClaude || viewModel.oauthSignInStatus == .success || autoDetectSucceeded
+        viewModel.isSignedInWithClaude || viewModel.oauthSignInStatus == .success
     }
 
     var body: some View {
@@ -102,34 +93,6 @@ struct OnboardingHeroView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(DS.Pastel.green)
-
-            Button {
-                runAutoDetect()
-            } label: {
-                if isAutoDetecting {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Text(String(localized: "connect.secondary.title"))
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(isAutoDetecting)
-
-            Text(String(localized: "connect.secondary.subtitle"))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-
-            if let message = autoDetectMessage {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(DS.Pastel.coral)
-                    .multilineTextAlignment(.center)
-            }
         }
     }
 
@@ -271,26 +234,4 @@ struct OnboardingHeroView: View {
         }
     }
 
-    // MARK: - Use Claude Code's session (borrowed token)
-
-    /// Mirrors `SettingsSectionView.connectAutoDetect()`: guards on a token
-    /// source existing first (a friendlier failure than the async round trip),
-    /// then tests the borrowed token via `UsageStore.connectAutoDetect()`.
-    private func runAutoDetect() {
-        autoDetectMessage = nil
-        guard settingsStore.credentialsTokenExists() else {
-            autoDetectMessage = String(localized: "connect.noclaudecode")
-            return
-        }
-        isAutoDetecting = true
-        Task {
-            let result = await usageStore.connectAutoDetect()
-            isAutoDetecting = false
-            if result.success {
-                autoDetectSucceeded = true
-            } else {
-                autoDetectMessage = result.message
-            }
-        }
-    }
 }
