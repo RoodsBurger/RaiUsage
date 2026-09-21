@@ -99,10 +99,11 @@
 "error.banner.reauth" = "Authorization needed";
 "error.banner.reauth.button" = "Re-authorize";
 "error.banner.apiunavailable" = "Usage API throttled by Anthropic";
-"error.banner.apiunavailable.hint" = "This is a rate limit on Anthropic's usage API, not your token or setup. Nothing for you to fix - RaiUsage keeps retrying and refreshes as soon as the limit clears (known issue: anthropics/claude-code#31637).";
+"error.banner.apiunavailable.hint" = "This is a rate limit on Anthropic's usage API, not your token or setup. RaiUsage waits it out and refreshes as soon as the limit clears - retrying in a tight loop only keeps the limit alive (known issue: anthropics/claude-code#31637).";
 "error.banner.apiunavailable.settings" = "This is on Anthropic's side (their usage API), not your token or setup. RaiUsage retries automatically and recovers when the limit clears.";
 "error.banner.apiunavailable.learnmore" = "Learn more";
 "error.banner.lastupdate" = "Last successful update: %@";
+"error.banner.nextretry" = "Next automatic retry %@";
 "error.banner.retry.button" = "Retry now";
 "error.banner.diagnostic.button" = "Copy diagnostic";
 "error.banner.diagnostic.copied" = "Copied";

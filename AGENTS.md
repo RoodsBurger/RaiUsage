@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 6.5.0 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.5.1 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -66,6 +66,20 @@ Auth is single-mode: the app's own "Sign in with Claude" OAuth login (`OAuthServ
 `TokenProvider.currentToken()` returns an in-memory cached access token; the store is re-read only when the cache is empty or after `invalidateToken()` (called on a 401). `refreshOAuthTokenIfNeeded()` (per tick) proactively renews a near-expiry token; `handleUnauthorizedOAuth()` forces one renewal after a 401. Refresh failures are gated: a definitive 400/401 marks the refresh token dead (no automatic retries until re-login), everything else - transport errors, 5xx, 429, ambiguous 403s - backs off exponentially (60s doubling, 1h cap). Never a token-endpoint request per tick.
 
 `OAuthTokenStore` persists the tokens in `~/Library/Application Support/com.raiusage.auth/oauth-tokens.json` (0600, real home via `getpwuid`). A file rather than a Keychain item because the app has no stable code-signing identity (ad-hoc signatures change every build/update), so a Keychain item's ACL breaks on each update and silent reads start failing - which used to drop the login. A legacy Keychain item (`com.raiusage.oauth`, pre-6.5.0) is migrated into the file on first load, then deleted.
+
+### Refresh triggers and the rate-limit backoff
+
+Anthropic's `/api/oauth/usage` limiter behaves like a rolling window: a request sent while throttled re-arms it, so an app that keeps poking never sees the limit clear. `UsageStore.refresh(trigger:)` therefore takes a `RefreshTrigger`:
+
+| Trigger | Skips poll interval | Skips rate-limit backoff | Used by |
+|---------|--------------------|--------------------------|---------|
+| `.scheduled` | no | no | the auto-refresh tick |
+| `.automatic` | yes | **no** | wake from sleep, sign-in, config reload |
+| `.userInitiated` | yes | yes | refresh buttons the user presses |
+
+Only an explicit user gesture may reach the API during a backoff window. `refreshProfile()` honors the same window (the profile endpoint shares the limiter), and a failed user retry re-arms the current rung rather than advancing it, so pressing "Retry now" repeatedly cannot ratchet the wait to the 6 h cap. The ladder is 5 min -> 15 min -> 30 min -> 1 h -> 2 h -> 4 h -> 6 h cap (`RateLimitBackoff`).
+
+Before 6.5.1 every `force: true` caller bypassed the backoff, including `refreshIfStale()` on `screensDidWakeNotification` - and since `lastUpdate` only advances on success, each screen wake fired an immediate request for as long as the throttle lasted. That is what made the "Usage API throttled" banner stick for a day and made "Retry now" useless. When adding a refresh call site, pick the weakest trigger that fits.
 
 ### Where to start reading
 

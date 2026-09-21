@@ -665,7 +665,7 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func contextRefresh() {
-        Task { await usageStore.refresh(force: true) }
+        Task { await usageStore.refresh(trigger: .userInitiated) }
     }
 
     @objc private func contextOpenDashboard() {

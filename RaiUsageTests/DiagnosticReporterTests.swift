@@ -42,7 +42,7 @@ struct DiagnosticReporterTests {
             notificationService: MockNotificationService()
         )
         store.lastUpdate = lastUpdate
-        await store.refresh(force: true)
+        await store.refresh(trigger: .automatic)
         let settings = SettingsStore(notificationService: MockNotificationService())
         return (store, settings)
     }

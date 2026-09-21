@@ -101,13 +101,18 @@ struct PopoverErrorBanner: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+            if let next = usageStore.retryAfterDate, next > Date() {
+                Text(String(format: String(localized: "error.banner.nextretry"),
+                            next.formatted(.relative(presentation: .named))))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             HStack(spacing: 6) {
                 primaryActionButton(
                     title: String(localized: "error.banner.retry.button"),
                     disabled: usageStore.isLoading
                 ) {
-                    usageStore.handleTokenChange()
-                    Task { await usageStore.refresh(force: true) }
+                    Task { await usageStore.refresh(trigger: .userInitiated) }
                 }
                 CopyDiagnosticButton()
                 Button {
@@ -142,7 +147,7 @@ struct PopoverErrorBanner: View {
                     title: String(localized: "error.banner.retry.button"),
                     disabled: usageStore.isLoading
                 ) {
-                    Task { await usageStore.refresh(force: true) }
+                    Task { await usageStore.refresh(trigger: .userInitiated) }
                 }
                 CopyDiagnosticButton()
             }

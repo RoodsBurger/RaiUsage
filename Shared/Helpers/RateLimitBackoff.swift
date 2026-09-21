@@ -12,8 +12,14 @@ enum RefreshSpeed: TimeInterval {
 /// anthropics/claude-code#31637 + #31021), so a missing or zero hint falls back
 /// to a capped exponential ladder; a real positive hint is honoured verbatim.
 struct RateLimitBackoff {
-    /// Exponential ladder, in seconds: 30 min -> 1 h -> 2 h -> 4 h -> 6 h cap.
+    /// Exponential ladder, in seconds: 5 min -> 15 min -> 30 min -> 1 h -> 2 h
+    /// -> 4 h -> 6 h cap. The early rungs recover quickly from a short throttle;
+    /// the later ones keep the app quiet through a long one. Every automatic
+    /// refresh honors the window, so a rung is a true silence, not a pause
+    /// between pokes.
     static let schedule: [TimeInterval] = [
+        5 * 60,
+        15 * 60,
         30 * 60,
         60 * 60,
         2 * 3600,

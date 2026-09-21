@@ -171,7 +171,7 @@ struct MonitoringView: View {
             }
 
             Button {
-                Task { await usageStore.refresh(force: true) }
+                Task { await usageStore.refresh(trigger: .userInitiated) }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .semibold))

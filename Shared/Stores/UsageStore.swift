@@ -1,5 +1,26 @@
 import SwiftUI
 
+/// What caused a refresh, which decides how much throttling it may skip.
+///
+/// Anthropic's `/api/oauth/usage` limiter behaves like a rolling window: a
+/// request made while throttled re-arms it, so an app that keeps poking never
+/// sees the limit clear. Only an explicit user gesture is allowed past the
+/// backoff; every automatic trigger stays quiet until it expires.
+enum RefreshTrigger {
+    /// Auto-refresh tick. Honors the poll interval and the rate-limit backoff.
+    case scheduled
+    /// Wake from sleep, sign-in, config reload. Skips the poll interval so
+    /// fresh state shows immediately, but still honors the backoff.
+    case automatic
+    /// A refresh button the user pressed. Skips both.
+    case userInitiated
+
+    /// Whether this trigger ignores the "too soon since the last success" check.
+    var skipsInterval: Bool { self != .scheduled }
+    /// Whether this trigger may hit the API during a rate-limit backoff.
+    var skipsRateLimitBackoff: Bool { self == .userInitiated }
+}
+
 @MainActor
 final class UsageStore: ObservableObject {
     @Published var fiveHourPct: Int = 0
@@ -81,8 +102,9 @@ final class UsageStore: ObservableObject {
     /// When fast mode was activated (resets to normal after 10 minutes)
     private var fastModeStart: Date?
 
-    /// Retry-After date from last 429 response
-    private(set) var retryAfterDate: Date?
+    /// When the next automatic refresh may run after a 429. Published so the
+    /// throttle banner can tell the user when to expect one.
+    @Published private(set) var retryAfterDate: Date?
 
     /// Number of consecutive 429s we've received. Drives the exponential
     /// backoff because anthropic's /api/oauth/usage endpoint returns 429 with
@@ -119,7 +141,7 @@ final class UsageStore: ObservableObject {
         self.notificationService = notificationService
     }
 
-    func refresh(thresholds: UsageThresholds = .default, force: Bool = false) async {
+    func refresh(thresholds: UsageThresholds = .default, trigger: RefreshTrigger = .scheduled) async {
         // Prevent concurrent refreshes. The guard plus setting `isLoading`
         // before the first `await` below is what serializes ticks: nothing
         // suspends between here and the assignment, so a re-entrant call sees
@@ -142,13 +164,15 @@ final class UsageStore: ObservableObject {
         }
 
         // Interval check using currentSpeed
-        if !force, let last = lastUpdate,
+        if !trigger.skipsInterval, let last = lastUpdate,
            Date().timeIntervalSince(last) < effectiveInterval {
             return
         }
 
-        // Respect Retry-After from previous 429 response
-        if !force, let retryAfter = retryAfterDate, Date() < retryAfter {
+        // Respect the backoff from a previous 429. Only an explicit user
+        // gesture goes past it: every automatic poke during the window keeps
+        // the server-side throttle alive.
+        if !trigger.skipsRateLimitBackoff, let retryAfter = retryAfterDate, Date() < retryAfter {
             return
         }
 
@@ -203,11 +227,18 @@ final class UsageStore: ObservableObject {
                 // we honor it. Otherwise use exponential backoff capped at 6h.
                 // Earlier passes (30 min, 1h, 2h, 4h) recover quickly when the
                 // throttle lifts on its own.
+                // A user retry re-arms the current rung instead of advancing
+                // it, so pressing "Retry now" a few times cannot ratchet the
+                // wait up to the 6 h cap.
                 let result = RateLimitBackoff.nextRetryDate(
-                    consecutiveRateLimits: consecutiveRateLimits,
+                    consecutiveRateLimits: trigger == .userInitiated
+                        ? max(consecutiveRateLimits - 1, 0)
+                        : consecutiveRateLimits,
                     serverRetryAfter: retryAfter
                 )
-                consecutiveRateLimits = result.consecutiveRateLimits
+                if trigger != .userInitiated {
+                    consecutiveRateLimits = result.consecutiveRateLimits
+                }
                 retryAfterDate = result.date
                 errorState = .rateLimited
             default:
@@ -228,7 +259,7 @@ final class UsageStore: ObservableObject {
     /// Only refreshes if lastUpdate is older than 120 seconds (for wake handler)
     func refreshIfStale(thresholds: UsageThresholds = .default) async {
         guard lastUpdate == nil || Date().timeIntervalSince(lastUpdate!) > 120 else { return }
-        await refresh(thresholds: thresholds, force: true)
+        await refresh(thresholds: thresholds, trigger: .automatic)
     }
 
     /// Switch to fast mode for FSEvents token changes
@@ -261,7 +292,7 @@ final class UsageStore: ObservableObject {
         notificationService.requestPermission()
         refreshTask?.cancel()
         refreshTask = Task {
-            await refresh(thresholds: thresholds, force: true)
+            await refresh(thresholds: thresholds, trigger: .automatic)
             // Fetch the profile right after the first usage refresh so the
             // plan badge (PRO / MAX / TEAM) shows up immediately instead of
             // waiting 10 minutes for the auto-refresh cycle. `refreshProfile`
@@ -292,13 +323,16 @@ final class UsageStore: ObservableObject {
     }
 
     func reauthenticate() async {
-        await refresh(force: true)
+        await refresh(trigger: .userInitiated)
     }
 
     private var lastProfileFetch: Date?
 
     func refreshProfile() async {
         guard let token = tokenProvider.currentToken() else { return }
+        // The profile endpoint shares the usage endpoint's limiter, so a
+        // rate-limit backoff silences it too.
+        if let retryAfter = retryAfterDate, Date() < retryAfter { return }
         // Throttle: profile rarely changes, skip if fetched less than 5min ago
         if let last = lastProfileFetch, Date().timeIntervalSince(last) < 300 { return }
         do {

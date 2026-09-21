@@ -12,12 +12,12 @@ struct RateLimitBackoffTests {
     func firstRateLimitUsesThirtyMinutes() {
         let r = RateLimitBackoff.nextRetryDate(consecutiveRateLimits: 0, serverRetryAfter: nil, now: now)
         #expect(r.consecutiveRateLimits == 1)
-        #expect(r.date.timeIntervalSince(now) == 30 * 60)
+        #expect(r.date.timeIntervalSince(now) == 5 * 60)
     }
 
     @Test("consecutive 429s climb the exponential ladder and cap at 6h")
     func consecutiveRateLimitsClimbAndCap() {
-        let expected: [TimeInterval] = [30 * 60, 60 * 60, 2 * 3600, 4 * 3600, 6 * 3600, 6 * 3600]
+        let expected: [TimeInterval] = [5 * 60, 15 * 60, 30 * 60, 60 * 60, 2 * 3600, 4 * 3600, 6 * 3600, 6 * 3600]
         var consecutive = 0
         for step in expected {
             let r = RateLimitBackoff.nextRetryDate(consecutiveRateLimits: consecutive, serverRetryAfter: nil, now: now)
@@ -30,7 +30,7 @@ struct RateLimitBackoffTests {
     func zeroRetryAfterFallsBackToExponential() {
         let r = RateLimitBackoff.nextRetryDate(consecutiveRateLimits: 0, serverRetryAfter: 0, now: now)
         #expect(r.consecutiveRateLimits == 1)
-        #expect(r.date.timeIntervalSince(now) == 30 * 60)
+        #expect(r.date.timeIntervalSince(now) == 5 * 60)
     }
 
     // MARK: - Honour a real positive Retry-After

@@ -724,7 +724,7 @@ private struct PopoverFooterToolbar: View {
             // Refresh also pulls every configured remote instance, so a manual
             // refresh is the single "sync all" gesture (no separate button).
             toolbarButton(system: "arrow.clockwise", help: "contextmenu.refresh", disabled: usageStore.isLoading) {
-                Task { await usageStore.refresh(force: true) }
+                Task { await usageStore.refresh(trigger: .userInitiated) }
                 remoteInstancesStore.syncAll()
             }
             if settingsStore.display.popoverConfig.showTimestamp {

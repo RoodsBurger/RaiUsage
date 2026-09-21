@@ -134,6 +134,10 @@ final class OnboardingViewModel: ObservableObject {
     /// (non-critical - the connected state still shows without an email).
     @discardableResult
     func refreshConnectedAccountEmail() async -> String? {
+        // Already known: no request. The email is stable, and this runs on
+        // every Settings open - during an API throttle that would be one more
+        // poke each time the user checks on the problem.
+        if let email = connectedAccountEmail { return email }
         guard isSignedInWithClaude, let token = tokenProvider.currentToken() else { return nil }
         guard let profile = try? await repository.fetchProfile(token: token, proxyConfig: nil) else { return nil }
         connectedAccountEmail = profile.account.email

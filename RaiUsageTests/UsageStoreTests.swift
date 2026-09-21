@@ -82,7 +82,7 @@ struct UsageStoreTests {
         await store.refresh()
         #expect(repo.refreshCallCount == 1)
 
-        await store.refresh(force: true)
+        await store.refresh(trigger: .automatic)
         #expect(repo.refreshCallCount == 2)
     }
 
@@ -219,30 +219,30 @@ struct UsageStoreTests {
         #expect(store.retryAfterDate != nil)
     }
 
-    @Test("retry-after: 0 starts at 30-min exponential backoff")
+    @Test("retry-after: 0 starts at the 5-min exponential rung")
     func rateLimitedWithZeroRetryAfterUsesExponentialBackoff() async {
         let (store, _, _, _, _) = makeSUT(shouldFail: true, failWith: .rateLimited(retryAfter: 0, retryAfterRaw: "0", endpoint: "/api/oauth/usage"))
 
         await store.refresh()
 
         if let retryAfterDate = store.retryAfterDate {
-            // First 429 should back off ~30 min (1800s)
-            #expect(retryAfterDate.timeIntervalSinceNow > 1800 - 5)
-            #expect(retryAfterDate.timeIntervalSinceNow < 1800 + 5)
+            // First 429 backs off ~5 min (300s)
+            #expect(retryAfterDate.timeIntervalSinceNow > 300 - 5)
+            #expect(retryAfterDate.timeIntervalSinceNow <= 300)
         } else {
             Issue.record("retryAfterDate should not be nil after retry-after: 0")
         }
     }
 
-    @Test("absent retry-after header starts at 30-min exponential backoff")
+    @Test("absent retry-after header starts at the 5-min exponential rung")
     func rateLimitedWithNilRetryAfterUsesExponentialBackoff() async {
         let (store, _, _, _, _) = makeSUT(shouldFail: true, failWith: .rateLimited(retryAfter: nil, retryAfterRaw: nil, endpoint: "/api/oauth/usage"))
 
         await store.refresh()
 
         if let retryAfterDate = store.retryAfterDate {
-            #expect(retryAfterDate.timeIntervalSinceNow > 1800 - 5)
-            #expect(retryAfterDate.timeIntervalSinceNow < 1800 + 5)
+            #expect(retryAfterDate.timeIntervalSinceNow > 300 - 5)
+            #expect(retryAfterDate.timeIntervalSinceNow <= 300)
         } else {
             Issue.record("retryAfterDate should not be nil when Retry-After header is absent")
         }
@@ -262,8 +262,8 @@ struct UsageStoreTests {
         await store.refresh()
         #expect(repo.refreshCallCount == callCountAfterFirst)
 
-        // Forced call: should bypass retryAfterDate and reach the API
-        await store.refresh(force: true)
+        // A user-pressed refresh: bypasses retryAfterDate and reaches the API
+        await store.refresh(trigger: .userInitiated)
         #expect(repo.refreshCallCount == callCountAfterFirst + 1)
     }
 
@@ -286,7 +286,7 @@ struct UsageStoreTests {
         // Fix the repo and retry
         repo.stubbedError = nil
         repo.stubbedUsage = .fixture()
-        await store.refresh(force: true)
+        await store.refresh(trigger: .automatic)
 
         #expect(store.hasError == false)
         #expect(store.errorState == .none)
@@ -305,7 +305,7 @@ struct UsageStoreTests {
         // Fix and retry
         repo.stubbedError = nil
         repo.stubbedUsage = .fixture(fiveHourUtil: 50)
-        await store.refresh(force: true)
+        await store.refresh(trigger: .userInitiated)
 
         #expect(store.errorState == .none)
         #expect(store.currentSpeed == .normal)
@@ -646,7 +646,7 @@ struct UsageStoreTests {
 
         // Step 3: handleTokenChange + forced refresh (what StatusBarController does)
         store.handleTokenChange()
-        await store.refresh(force: true)
+        await store.refresh(trigger: .automatic)
 
         // The store should have recovered
         #expect(store.errorState == .none)
@@ -664,7 +664,7 @@ struct UsageStoreTests {
         #expect(tokenProvider.refreshOAuthTokenIfNeededCallCount == 1)
         #expect(repo.refreshCallCount == 1)
 
-        await store.refresh(force: true)
+        await store.refresh(trigger: .automatic)
         #expect(tokenProvider.refreshOAuthTokenIfNeededCallCount == 2)
         #expect(repo.refreshCallCount == 2)
     }
@@ -695,4 +695,78 @@ struct UsageStoreTests {
         #expect(tokenProvider.refreshOAuthTokenIfNeededCallCount == 0)
         #expect(tokenProvider.invalidateCallCount == 1)
     }
+
+    // MARK: - Rate-limit backoff is honored by automatic triggers
+
+    @Test("wake-triggered refresh makes no request while the rate-limit backoff is armed")
+    func wakeRefreshHonorsBackoff() async {
+        let (store, repo, _, _, _) = makeSUT(
+            shouldFail: true,
+            failWith: .rateLimited(retryAfter: nil, retryAfterRaw: nil, endpoint: "/api/oauth/usage")
+        )
+
+        await store.refresh()
+        #expect(store.errorState == .rateLimited)
+        #expect(repo.refreshCallCount == 1)
+        #expect(store.retryAfterDate != nil)
+
+        // Screen wake. `lastUpdate` never advanced (no success), so the
+        // staleness check passes every time - this must NOT re-poke the API,
+        // or the throttle window keeps being reset and never clears.
+        await store.refreshIfStale()
+        await store.refreshIfStale()
+
+        #expect(repo.refreshCallCount == 1)
+    }
+
+    @Test("a user-initiated retry still reaches the API while the backoff is armed")
+    func userRetryBypassesBackoff() async {
+        let (store, repo, _, _, _) = makeSUT(
+            shouldFail: true,
+            failWith: .rateLimited(retryAfter: nil, retryAfterRaw: nil, endpoint: "/api/oauth/usage")
+        )
+
+        await store.refresh()
+        #expect(repo.refreshCallCount == 1)
+
+        await store.refresh(trigger: .userInitiated)
+
+        #expect(repo.refreshCallCount == 2)
+    }
+
+    @Test("a failed user retry does not deepen the backoff ladder")
+    func userRetryDoesNotEscalateLadder() async {
+        let (store, repo, _, _, _) = makeSUT(
+            shouldFail: true,
+            failWith: .rateLimited(retryAfter: nil, retryAfterRaw: nil, endpoint: "/api/oauth/usage")
+        )
+
+        await store.refresh() // rung 1
+        let firstWindow = store.retryAfterDate!.timeIntervalSinceNow
+
+        // Spamming Retry must not push the wait from 30 min to the 6 h cap.
+        await store.refresh(trigger: .userInitiated)
+        await store.refresh(trigger: .userInitiated)
+        await store.refresh(trigger: .userInitiated)
+        let afterRetries = store.retryAfterDate!.timeIntervalSinceNow
+
+        #expect(repo.refreshCallCount == 4)
+        #expect(afterRetries <= firstWindow + 60)
+    }
+
+    @Test("the profile endpoint is not polled while the rate-limit backoff is armed")
+    func profileFetchHonorsBackoff() async {
+        let (store, repo, _, _, _) = makeSUT(
+            shouldFail: true,
+            failWith: .rateLimited(retryAfter: nil, retryAfterRaw: nil, endpoint: "/api/oauth/usage")
+        )
+
+        await store.refresh()
+        #expect(store.retryAfterDate != nil)
+
+        await store.refreshProfile()
+
+        #expect(repo.fetchProfileCallCount == 0)
+    }
+
 }
