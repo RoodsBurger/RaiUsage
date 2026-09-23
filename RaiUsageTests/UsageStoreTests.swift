@@ -769,4 +769,73 @@ struct UsageStoreTests {
         #expect(repo.fetchProfileCallCount == 0)
     }
 
+    // MARK: - Dead session
+
+    @Test("no usage request is made while the session needs reauthorization")
+    func noRequestWhileReauthorizationNeeded() async {
+        let (store, repo, tokenProvider, _, _) = makeSUT()
+        tokenProvider.needsReauthorization = true
+
+        await store.refresh(trigger: .automatic)
+
+        #expect(repo.refreshCallCount == 0)
+        #expect(store.errorState == .tokenUnavailable)
+    }
+
+    @Test("reauthenticate runs the browser sign-in, saves the login, and refreshes with it")
+    func reauthenticateSignsIn() async {
+        let repo = MockUsageRepository()
+        repo.stubbedUsage = .fixture(fiveHourUtil: 12)
+        let tokenProvider = MockTokenProvider()
+        tokenProvider.token = "dead-token"
+        let oauth = MockOAuthService()
+        let fresh = OAuthTokens(accessToken: "fresh-token", refreshToken: "fresh-refresh", expiresAt: Date().addingTimeInterval(3600))
+        oauth.stubbedLoginResult = .success(fresh)
+        let store = UsageStore(
+            repository: repo,
+            tokenProvider: tokenProvider,
+            sharedFileService: MockSharedFileService(),
+            notificationService: MockNotificationService(),
+            oauthService: oauth
+        )
+
+        await store.reauthenticate()
+
+        #expect(oauth.beginLoginCallCount == 1)
+        #expect(tokenProvider.lastCompletedOAuthLogin == fresh)
+        #expect(repo.lastToken == "fresh-token")
+        #expect(store.errorState == .none)
+        #expect(store.fiveHourPct == 12)
+    }
+
+    @Test("a cancelled reauthenticate leaves the stored login untouched")
+    func reauthenticateCancelled() async {
+        let tokenProvider = MockTokenProvider()
+        tokenProvider.token = "dead-token"
+        let oauth = MockOAuthService()
+        oauth.stubbedLoginResult = .failure(.cancelled)
+        let repo = MockUsageRepository()
+        let store = UsageStore(
+            repository: repo,
+            tokenProvider: tokenProvider,
+            sharedFileService: MockSharedFileService(),
+            notificationService: MockNotificationService(),
+            oauthService: oauth
+        )
+
+        await store.reauthenticate()
+
+        #expect(tokenProvider.completeOAuthLoginCallCount == 0)
+        #expect(repo.refreshCallCount == 0)
+    }
+
+    @Test("the profile endpoint is not polled while the session needs reauthorization")
+    func profileSkippedWhileReauthorizationNeeded() async {
+        let (store, repo, tokenProvider, _, _) = makeSUT()
+        tokenProvider.needsReauthorization = true
+
+        await store.refreshProfile()
+
+        #expect(repo.fetchProfileCallCount == 0)
+    }
 }

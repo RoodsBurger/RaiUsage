@@ -17,6 +17,9 @@ final class MockTokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// What the async OAuth-refresh seams return. Default false = no login.
     var oauthRefreshedProactively = false
     var oauthRefreshedOnUnauthorized = false
+    /// What `needsReauthorization` returns. Tests flip this to simulate a dead session.
+    var needsReauthorization = false
+    var sessionExpiresAt: Date?
 
     func currentToken() -> String? {
         currentTokenCallCount += 1

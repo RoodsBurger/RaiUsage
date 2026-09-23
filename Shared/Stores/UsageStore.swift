@@ -93,6 +93,7 @@ final class UsageStore: ObservableObject {
     private let tokenProvider: TokenProviderProtocol
     private let sharedFileService: SharedFileServiceProtocol
     private let notificationService: NotificationServiceProtocol
+    private let oauthService: OAuthServiceProtocol
     private var refreshTask: Task<Void, Never>?
     private var autoRefreshTask: Task<Void, Never>?
 
@@ -133,12 +134,14 @@ final class UsageStore: ObservableObject {
         repository: UsageRepositoryProtocol = UsageRepository(),
         tokenProvider: TokenProviderProtocol = TokenProvider(),
         sharedFileService: SharedFileServiceProtocol = SharedFileService(),
-        notificationService: NotificationServiceProtocol = NotificationService()
+        notificationService: NotificationServiceProtocol = NotificationService(),
+        oauthService: OAuthServiceProtocol = OAuthService()
     ) {
         self.repository = repository
         self.tokenProvider = tokenProvider
         self.sharedFileService = sharedFileService
         self.notificationService = notificationService
+        self.oauthService = oauthService
     }
 
     func refresh(thresholds: UsageThresholds = .default, trigger: RefreshTrigger = .scheduled) async {
@@ -183,6 +186,13 @@ final class UsageStore: ObservableObject {
         // reading the token for this fetch, so the tick self-refreshes.
         // Guarded by `isLoading` against re-entry.
         _ = await tokenProvider.refreshOAuthTokenIfNeeded()
+
+        // A dead session only earns guaranteed 401s, and each one still counts
+        // against the usage endpoint's rate limit. Stay quiet until sign-in.
+        if tokenProvider.needsReauthorization {
+            errorState = .tokenUnavailable
+            return
+        }
 
         // Read the (possibly just-renewed) token for the fetch.
         guard let token = tokenProvider.currentToken() else {
@@ -322,8 +332,24 @@ final class UsageStore: ObservableObject {
         autoRefreshTask?.cancel()
     }
 
+    /// Runs the browser "Sign in with Claude" flow and, on success, saves the
+    /// login and refreshes with it. Owned here rather than by a view because
+    /// the popover closes as soon as the browser takes focus. A newer call
+    /// cancels an older pending one, which resumes it with `.cancelled`.
     func reauthenticate() async {
+        let result: Result<OAuthTokens, OAuthError> = await withCheckedContinuation { continuation in
+            oauthService.beginLogin { continuation.resume(returning: $0) }
+        }
+        guard case .success(let tokens) = result else { return }
+        do {
+            try tokenProvider.completeOAuthLogin(tokens)
+        } catch {
+            return
+        }
+        handleTokenChange()
+        lastProfileFetch = nil
         await refresh(trigger: .userInitiated)
+        await refreshProfile()
     }
 
     private var lastProfileFetch: Date?
@@ -331,8 +357,9 @@ final class UsageStore: ObservableObject {
     func refreshProfile() async {
         guard let token = tokenProvider.currentToken() else { return }
         // The profile endpoint shares the usage endpoint's limiter, so a
-        // rate-limit backoff silences it too.
+        // rate-limit backoff or a dead session silences it too.
         if let retryAfter = retryAfterDate, Date() < retryAfter { return }
+        if tokenProvider.needsReauthorization { return }
         // Throttle: profile rarely changes, skip if fetched less than 5min ago
         if let last = lastProfileFetch, Date().timeIntervalSince(last) < 300 { return }
         do {

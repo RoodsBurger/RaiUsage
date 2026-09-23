@@ -26,4 +26,10 @@ protocol TokenProviderProtocol: Sendable {
     /// Whether the app currently owns an OAuth token set (a durable "Sign in
     /// with Claude" login).
     func hasOwnOAuthLogin() -> Bool
+    /// True when the stored session is over: its access token is expired or
+    /// rejected and its refresh token is dead. Polling is pointless until the
+    /// user signs in again.
+    var needsReauthorization: Bool { get }
+    /// When the stored sign-in session ends, if the server said.
+    var sessionExpiresAt: Date? { get }
 }

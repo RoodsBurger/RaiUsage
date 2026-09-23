@@ -55,6 +55,9 @@ final class OnboardingViewModel: ObservableObject {
     /// Whether the app currently owns a durable "Sign in with Claude" login.
     var isSignedInWithClaude: Bool { tokenProvider.hasOwnOAuthLogin() }
 
+    /// When the current sign-in session ends and a new sign-in is required.
+    var sessionExpiresAt: Date? { tokenProvider.sessionExpiresAt }
+
     func checkNotificationStatus() {
         Task {
             let status = await notificationService.checkAuthorizationStatus()

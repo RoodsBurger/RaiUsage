@@ -70,6 +70,9 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// future. No-op returning false when no login exists.
     func handleUnauthorizedOAuth() async -> Bool {
         guard let tokens = oauthTokenStore.load() else { return false }
+        cacheLock.lock()
+        _rejectedAccessToken = tokens.accessToken
+        cacheLock.unlock()
         return await performOAuthRefresh(tokens)
     }
 
@@ -80,41 +83,66 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// 1-2 token-endpoint POSTs (proactive + 401 handler) forever - enough to
     /// trip Anthropic's account-level login rate limit and block the user's
     /// own re-authorization ("you have reached the rate limit for login").
-    private var _refreshTokenDead = false
+    ///
+    /// Every field is tied to the refresh token it describes, not to this
+    /// instance. Settings signs in through its own `TokenProvider`, so a new
+    /// login lands in the shared store without calling anything here; keying
+    /// on the token means that new refresh token is simply a fresh one, never
+    /// blocked by the old one's verdict.
+    private var _deadRefreshToken: String?
+    private var _backoffRefreshToken: String?
     private var _consecutiveRefreshFailures = 0
     private var _refreshRetryAt: Date?
+    /// An access token the server answered 401 to, even if its local expiry
+    /// is still in the future.
+    private var _rejectedAccessToken: String?
 
     /// Transient-failure ladder: 60s doubling to a 1h cap.
     private static let refreshBackoffBase: TimeInterval = 60
     private static let refreshBackoffCap: TimeInterval = 3600
 
-    /// Whether a refresh exchange may hit the network right now.
-    private func refreshGateAllows() -> Bool {
+    /// Whether `tokens.refreshToken` is known to be unredeemable: rejected by
+    /// the server, or past the lifetime the server stated for it.
+    private func refreshTokenIsDead(_ tokens: OAuthTokens) -> Bool {
+        if let end = tokens.refreshTokenExpiresAt, end <= now() { return true }
         cacheLock.lock(); defer { cacheLock.unlock() }
-        if _refreshTokenDead { return false }
-        if let retryAt = _refreshRetryAt, now() < retryAt { return false }
+        return _deadRefreshToken == tokens.refreshToken
+    }
+
+    /// Whether a refresh exchange for `tokens` may hit the network right now.
+    private func refreshGateAllows(_ tokens: OAuthTokens) -> Bool {
+        if refreshTokenIsDead(tokens) { return false }
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if _backoffRefreshToken == tokens.refreshToken, let retryAt = _refreshRetryAt, now() < retryAt {
+            return false
+        }
         return true
     }
 
-    /// Records a refresh outcome. Only a definitive 400/401 marks the refresh
-    /// token dead (invalid_grant / revoked - retrying can never succeed), and
-    /// the gate then closes until a new login or disconnect. Everything else -
-    /// transport failures, 5xx, 429, and ambiguous statuses like 403 that the
-    /// endpoint can return while rate-limiting - is transient and backs off
-    /// exponentially, so a server-side blip never strands the app on a
-    /// permanent "Authorization needed" it could have recovered from.
-    private func noteRefreshOutcome(_ result: Result<OAuthTokens, OAuthError>) {
+    /// Records a refresh outcome for `refreshToken`. Only a definitive 400/401
+    /// marks it dead (invalid_grant / expired / revoked - retrying can never
+    /// succeed). Everything else - transport failures, 5xx, 429, and
+    /// ambiguous statuses like 403 that the endpoint can return while
+    /// rate-limiting - is transient and backs off exponentially, so a
+    /// server-side blip never strands the app on "Authorization needed".
+    private func noteRefreshOutcome(_ result: Result<OAuthTokens, OAuthError>, for refreshToken: String) {
         cacheLock.lock(); defer { cacheLock.unlock() }
         switch result {
         case .success:
-            _refreshTokenDead = false
+            _deadRefreshToken = nil
+            _backoffRefreshToken = nil
             _consecutiveRefreshFailures = 0
             _refreshRetryAt = nil
+            _rejectedAccessToken = nil
         case .failure(let error):
             if case .refreshFailed(let status) = error, status == 400 || status == 401 {
-                _refreshTokenDead = true
+                _deadRefreshToken = refreshToken
                 logger.info("OAuth refresh rejected (\(status)) - refresh token is dead, stopping automatic retries")
                 return
+            }
+            if _backoffRefreshToken != refreshToken {
+                _backoffRefreshToken = refreshToken
+                _consecutiveRefreshFailures = 0
             }
             _consecutiveRefreshFailures += 1
             let exponent = Double(_consecutiveRefreshFailures - 1)
@@ -124,13 +152,34 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
         }
     }
 
-    /// Reopens the gate after the stored token set changes (fresh login or
-    /// sign-out): the failure history belonged to the previous refresh token.
+    /// Clears all failure history after a login or sign-out on this instance.
     private func resetRefreshGate() {
         cacheLock.lock(); defer { cacheLock.unlock() }
-        _refreshTokenDead = false
+        _deadRefreshToken = nil
+        _backoffRefreshToken = nil
         _consecutiveRefreshFailures = 0
         _refreshRetryAt = nil
+        _rejectedAccessToken = nil
+    }
+
+    /// True when the stored session can no longer produce a working access
+    /// token without the user signing in again: the access token is expired
+    /// (or the server rejected it) and its refresh token is dead. Callers stop
+    /// polling on this - every request with a dead session is a guaranteed 401
+    /// that still counts against the usage endpoint's rate limit.
+    var needsReauthorization: Bool {
+        guard let tokens = oauthTokenStore.load() else { return false }
+        let accessRejected: Bool = {
+            cacheLock.lock(); defer { cacheLock.unlock() }
+            return _rejectedAccessToken == tokens.accessToken
+        }()
+        guard tokens.expiresAt <= now() || accessRejected else { return false }
+        return refreshTokenIsDead(tokens)
+    }
+
+    /// When the stored sign-in session ends, if the server said.
+    var sessionExpiresAt: Date? {
+        oauthTokenStore.load()?.refreshTokenExpiresAt
     }
 
     /// Runs one OAuth refresh exchange, awaiting the completion-based
@@ -143,7 +192,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
     /// returns the fresh access token. A failure leaves the stored tokens
     /// untouched (the access token keeps being served until a hard 401).
     private func performOAuthRefresh(_ tokens: OAuthTokens) async -> Bool {
-        guard refreshGateAllows() else { return false }
+        guard refreshGateAllows(tokens) else { return false }
         let result: Result<OAuthTokens, OAuthError> = await withCheckedContinuation { continuation in
             self.oauthService.refresh(tokens) { result in
                 if case .success(let newTokens) = result {
@@ -152,7 +201,7 @@ final class TokenProvider: TokenProviderProtocol, @unchecked Sendable {
                 continuation.resume(returning: result)
             }
         }
-        noteRefreshOutcome(result)
+        noteRefreshOutcome(result, for: tokens.refreshToken)
         guard case .success(let refreshed) = result else {
             logger.info("OAuth refresh failed - keeping existing access token")
             return false

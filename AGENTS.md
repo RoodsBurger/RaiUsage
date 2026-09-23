@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 6.5.1 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.5.2 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -64,6 +64,10 @@ The menu bar is **AppKit `NSStatusItem`** managed by `StatusBarController`, not 
 Auth is single-mode: the app's own "Sign in with Claude" OAuth login (`OAuthService` + `OAuthTokenStore`, PKCE-backed). Borrowing Claude Code / Claude Desktop credentials was removed in 6.5.0 - serving another app's token invited expiry races, and its refresh token could never be redeemed safely (refresh tokens rotate on use, so a redemption invalidates the owner's copy and the reuse-detection fallout kills both token families - the source of the recurring login-rate-limit storms).
 
 `TokenProvider.currentToken()` returns an in-memory cached access token; the store is re-read only when the cache is empty or after `invalidateToken()` (called on a 401). `refreshOAuthTokenIfNeeded()` (per tick) proactively renews a near-expiry token; `handleUnauthorizedOAuth()` forces one renewal after a 401. Refresh failures are gated: a definitive 400/401 marks the refresh token dead (no automatic retries until re-login), everything else - transport errors, 5xx, 429, ambiguous 403s - backs off exponentially (60s doubling, 1h cap). Never a token-endpoint request per tick.
+
+The gate is keyed to the refresh token it describes, not to the `TokenProvider` instance. `UsageStore` and Settings' `OnboardingViewModel` each own a `TokenProvider` over the same file store; a login through either one writes a new refresh token, which the other sees as fresh. (With an instance-level flag, a Settings re-login left `UsageStore`'s gate closed, so the app fell back to "Authorization needed" 8 h later at the first refresh, every cycle, until relaunch.)
+
+Sign-in sessions have a fixed lifetime that refreshing cannot extend: the server answers `invalid_grant: Refresh token expired` when it ends. Token responses carry `refresh_token_expires_in`, stored as `OAuthTokens.refreshTokenExpiresAt` and shown in Settings. Once the access token is expired or rejected and the refresh token is dead, `TokenProvider.needsReauthorization` is true and `UsageStore` stops polling (each request would be a guaranteed 401 that still counts against the usage rate limit). The popover's "Re-authorize" runs the real browser sign-in via `UsageStore.reauthenticate()`, which owns the flow because the popover closes as soon as the browser takes focus.
 
 `OAuthTokenStore` persists the tokens in `~/Library/Application Support/com.raiusage.auth/oauth-tokens.json` (0600, real home via `getpwuid`). A file rather than a Keychain item because the app has no stable code-signing identity (ad-hoc signatures change every build/update), so a Keychain item's ACL breaks on each update and silent reads start failing - which used to drop the login. A legacy Keychain item (`com.raiusage.oauth`, pre-6.5.0) is migrated into the file on first load, then deleted.
 
@@ -148,7 +152,7 @@ Prerequisites: macOS 14+, XcodeGen (`brew install xcodegen`), and Xcode (see the
 
 ### Unit tests
 
-The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 702 `@Test` cases across 59 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
+The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 718 `@Test` cases across 59 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
 
 Run the tests (identical to CI):
 

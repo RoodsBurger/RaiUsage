@@ -50,11 +50,12 @@ struct RaiUsageApp: App {
     private let remoteInstancesStore: RemoteInstancesStore
 
     init() {
+        let oauthService = OAuthService()
         let tokenProvider = TokenProvider(
-            oauthService: OAuthService(),
+            oauthService: oauthService,
             oauthTokenStore: OAuthTokenStore()
         )
-        self.usageStore = UsageStore(tokenProvider: tokenProvider)
+        self.usageStore = UsageStore(tokenProvider: tokenProvider, oauthService: oauthService)
         self.settingsStore = SettingsStore()
         self.vendorStatusStore = VendorStatusStore()
         self.activityStore = ActivityStore()

@@ -98,6 +98,7 @@
 "error.unsupportedplan" = "Usage data not available - Claude Pro or Team plan required";
 "error.banner.reauth" = "Authorization needed";
 "error.banner.reauth.button" = "Re-authorize";
+"connect.signin.sessionuntil" = "Renews automatically until %@, then asks you to sign in again";
 "error.banner.apiunavailable" = "Usage API throttled by Anthropic";
 "error.banner.apiunavailable.hint" = "This is a rate limit on Anthropic's usage API, not your token or setup. RaiUsage waits it out and refreshes as soon as the limit clears - retrying in a tight loop only keeps the limit alive (known issue: anthropics/claude-code#31637).";
 "error.banner.apiunavailable.settings" = "This is on Anthropic's side (their usage API), not your token or setup. RaiUsage retries automatically and recovers when the limit clears.";

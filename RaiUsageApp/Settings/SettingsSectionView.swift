@@ -520,6 +520,12 @@ struct SettingsSectionView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let end = connectFlow.sessionExpiresAt {
+                        Text(String(format: String(localized: "connect.signin.sessionuntil"),
+                                    end.formatted(date: .abbreviated, time: .omitted)))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
                 Button(role: .destructive) {

@@ -108,6 +108,23 @@ struct TokenResponseTests {
         #expect(abs(tokens.expiresAt.timeIntervalSince(expectedExpiry)) < 1.0)
     }
 
+    @Test("TokenResponse carries the refresh token's remaining lifetime")
+    func refreshLifetimeDecoded() throws {
+        let json = Data(#"{"access_token":"a","refresh_token":"r","expires_in":28800,"refresh_token_expires_in":86400,"token_type":"Bearer","scope":"user:inference"}"#.utf8)
+        let response = try JSONDecoder().decode(TokenResponse.self, from: json)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+
+        #expect(response.tokens(now: now).refreshTokenExpiresAt == now.addingTimeInterval(86400))
+    }
+
+    @Test("TokenResponse without a refresh lifetime leaves it unknown")
+    func refreshLifetimeAbsent() throws {
+        let json = Data(#"{"access_token":"a","refresh_token":"r","expires_in":28800,"token_type":"Bearer","scope":"user:inference"}"#.utf8)
+        let response = try JSONDecoder().decode(TokenResponse.self, from: json)
+
+        #expect(response.tokens(now: Date()).refreshTokenExpiresAt == nil)
+    }
+
     @Test("TokenResponse.tokens uses provided now parameter")
     func tokensUsesNowParameter() throws {
         let json = """

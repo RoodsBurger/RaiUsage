@@ -18,6 +18,10 @@ struct OAuthTokens: Codable, Equatable {
     var accessToken: String
     var refreshToken: String
     var expiresAt: Date
+    /// When the refresh token stops working, from the server's
+    /// `refresh_token_expires_in`. Sign-in sessions have a fixed lifetime that
+    /// refreshing cannot extend; nil when the server did not say.
+    var refreshTokenExpiresAt: Date? = nil
 
     /// True when within `margin` of expiry (default 300s) — refresh trigger.
     func needsRefresh(now: Date = .init(), margin: TimeInterval = 300) -> Bool {
@@ -32,6 +36,7 @@ struct TokenResponse: Decodable {
     let accessToken: String
     let refreshToken: String
     let expiresIn: Int
+    let refreshTokenExpiresIn: Int?
     let tokenType: String
     let scope: String
 
@@ -39,6 +44,7 @@ struct TokenResponse: Decodable {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
         case expiresIn = "expires_in"
+        case refreshTokenExpiresIn = "refresh_token_expires_in"
         case tokenType = "token_type"
         case scope
     }
@@ -49,7 +55,8 @@ struct TokenResponse: Decodable {
         return OAuthTokens(
             accessToken: accessToken,
             refreshToken: refreshToken,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            refreshTokenExpiresAt: refreshTokenExpiresIn.map { now.addingTimeInterval(TimeInterval($0)) }
         )
     }
 }

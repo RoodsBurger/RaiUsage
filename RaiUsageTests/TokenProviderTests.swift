@@ -328,6 +328,93 @@ struct TokenProviderTests {
         #expect(provider.currentToken() == "renewed-access")
     }
 
+    // MARK: - Gate follows the refresh token, not the instance
+
+    @Test("a dead-refresh gate reopens when another TokenProvider saves a new login to the shared store")
+    func deadGateReopensForLoginFromAnotherInstance() async throws {
+        let store = MockOAuthTokenStore()
+        try store.save(OAuthTokens(accessToken: "a1", refreshToken: "dead-refresh", expiresAt: Date().addingTimeInterval(60)))
+        let service = MockOAuthService()
+        service.stubbedRefreshResult = .failure(.refreshFailed(400))
+        let usageSide = TokenProvider(oauthService: service, oauthTokenStore: store, oauthImportFileURL: Self.noImportFileURL)
+        let settingsSide = TokenProvider(oauthService: MockOAuthService(), oauthTokenStore: store, oauthImportFileURL: Self.noImportFileURL)
+
+        _ = await usageSide.refreshOAuthTokenIfNeeded()
+        #expect(service.refreshCallCount == 1) // gate now closed for "dead-refresh"
+
+        // Re-authorizing from Settings goes through a different TokenProvider.
+        try settingsSide.completeOAuthLogin(OAuthTokens(accessToken: "a2", refreshToken: "fresh-refresh", expiresAt: Date().addingTimeInterval(60)))
+        service.stubbedRefreshResult = .success(OAuthTokens(accessToken: "a3", refreshToken: "fresh-refresh-2", expiresAt: Date().addingTimeInterval(3600)))
+
+        #expect(await usageSide.refreshOAuthTokenIfNeeded() == true)
+        #expect(service.refreshCallCount == 2)
+        #expect(service.lastRefreshTokens?.refreshToken == "fresh-refresh")
+    }
+
+    // MARK: - needsReauthorization (stop polling a dead session)
+
+    @Test("needsReauthorization is true once the access token expired and its refresh token was rejected")
+    func needsReauthorizationAfterRejectedRefresh() async {
+        let expired = OAuthTokens(accessToken: "a", refreshToken: "dead", expiresAt: Date().addingTimeInterval(-10))
+        let (provider, _, _) = makeSUT(oauthTokens: expired, oauthRefreshResult: .failure(.refreshFailed(400)))
+
+        #expect(provider.needsReauthorization == false) // not known dead yet
+        _ = await provider.refreshOAuthTokenIfNeeded()
+        #expect(provider.needsReauthorization == true)
+    }
+
+    @Test("needsReauthorization stays false while the access token is still usable")
+    func needsReauthorizationFalseWhileAccessValid() async {
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "dead", expiresAt: Date().addingTimeInterval(60))
+        let (provider, _, _) = makeSUT(oauthTokens: tokens, oauthRefreshResult: .failure(.refreshFailed(400)))
+
+        _ = await provider.refreshOAuthTokenIfNeeded()
+
+        #expect(provider.needsReauthorization == false)
+    }
+
+    @Test("needsReauthorization is true when the server rejects an unexpired access token and refresh is dead")
+    func needsReauthorizationAfterServerRejection() async {
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "dead", expiresAt: Date().addingTimeInterval(3600))
+        let (provider, _, _) = makeSUT(oauthTokens: tokens, oauthRefreshResult: .failure(.refreshFailed(401)))
+
+        _ = await provider.handleUnauthorizedOAuth() // server 401'd the access token; refresh rejected
+
+        #expect(provider.needsReauthorization == true)
+    }
+
+    @Test("needsReauthorization is false during a transient refresh backoff")
+    func needsReauthorizationFalseDuringTransientBackoff() async {
+        let expired = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date().addingTimeInterval(-10))
+        let (provider, _, _) = makeSUT(oauthTokens: expired, oauthRefreshResult: .failure(.refreshFailed(-1)))
+
+        _ = await provider.refreshOAuthTokenIfNeeded()
+
+        #expect(provider.needsReauthorization == false)
+    }
+
+    @Test("a refresh token past its known lifetime is not redeemed and marks the session for reauthorization")
+    func knownRefreshExpiryNeedsReauthorizationWithoutNetwork() async {
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date().addingTimeInterval(-10), refreshTokenExpiresAt: Date().addingTimeInterval(-5))
+        let (provider, _, service) = makeSUT(
+            oauthTokens: tokens,
+            oauthRefreshResult: .success(OAuthTokens(accessToken: "x", refreshToken: "y", expiresAt: Date().addingTimeInterval(3600)))
+        )
+
+        #expect(await provider.refreshOAuthTokenIfNeeded() == false)
+        #expect(service.refreshCallCount == 0)
+        #expect(provider.needsReauthorization == true)
+    }
+
+    @Test("sessionExpiresAt reports the stored refresh token's lifetime")
+    func sessionExpiresAtFromStore() {
+        let end = Date(timeIntervalSince1970: 1_900_000_000)
+        let tokens = OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date().addingTimeInterval(3600), refreshTokenExpiresAt: end)
+        let (provider, _, _) = makeSUT(oauthTokens: tokens)
+
+        #expect(provider.sessionExpiresAt == end)
+    }
+
     // MARK: - invalidate / disconnect / login
 
     @Test("invalidateToken only clears the cache and never calls oauthService.refresh")
