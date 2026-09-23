@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 6.5.2 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.5.3 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -220,4 +220,5 @@ The `xattr -cr` above is only for ad-hoc local builds. Official release DMGs are
 
 - **The App Group is not active.** `com.apple.security.application-groups` is deliberately omitted from `RaiUsageApp.entitlements` (with an explicit comment): Xcode's build system insists on a matching provisioning profile when the entitlement is present, and CI has none. `SharedFileService` therefore always uses the home-relative `~/Library/Application Support/com.raiusage.shared/shared.json`, which the desandboxed app can write freely. App Group activation is a deferred follow-up (see `docs/v5.0.1-followup.md` and `scripts/enable-app-groups.sh`).
 - **Real home directory.** `FileManager.homeDirectoryForCurrentUser` can return a sandbox container path, not the real home. The credential and shared-file readers use `getpwuid(getuid())` instead (as `SharedFileService`, `CredentialsFileReader`, `ClaudeConfigReader`, and others do).
+- **Status item appearance KVO loops.** Setting `statusItem.button.image` re-emits the button's `effectiveAppearance` KVO even when nothing changed. `StatusBarController` observes it to adapt to light/dark menu bars, so the observer re-renders only when the resolved dark/light value differs from `lastRenderedMenuBarIsDark`. Without that guard, render -> KVO -> render pins a core at 100% (shipped that way from July through 6.5.2; macOS `cpu_resource.diag` reports in `/Library/Logs/DiagnosticReports` are the tell).
 - **`DEVELOPMENT_TEAM` is hardcoded** in `project.yml` and will not work for external contributors (see the build note above).

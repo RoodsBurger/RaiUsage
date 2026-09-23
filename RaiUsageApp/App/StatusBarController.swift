@@ -42,6 +42,8 @@ final class StatusBarController: NSObject {
     /// background (translucent - shows the desktop through it) flips between
     /// dark and light, independent of any periodic tick.
     private var appearanceObservation: NSKeyValueObservation?
+    /// The dark/light resolution the current menu bar image was drawn for.
+    private var lastRenderedMenuBarIsDark: Bool?
     private var cancellables = Set<AnyCancellable>()
     private var countdownCancellable: AnyCancellable?
     private var rotateCancellable: AnyCancellable?
@@ -114,8 +116,12 @@ final class StatusBarController: NSObject {
         // button's own effective appearance (not `NSApp`'s) and re-render
         // immediately when it flips, on top of the periodic re-read every
         // `updateMenuBarIcon()` tick already does.
+        // Setting the image re-emits this KVO, so only a real dark/light flip may re-render (else it loops at 100% CPU).
         appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.updateMenuBarIcon() }
+            DispatchQueue.main.async {
+                guard let self, self.menuBarIsDark != self.lastRenderedMenuBarIsDark else { return }
+                self.updateMenuBarIcon()
+            }
         }
         updateMenuBarIcon()
     }
@@ -481,6 +487,8 @@ final class StatusBarController: NSObject {
     // MARK: - Menu Bar Icon
 
     private func updateMenuBarIcon() {
+        let isDark = menuBarIsDark
+        lastRenderedMenuBarIsDark = isDark
         let image = MenuBarRenderer.render(MenuBarRenderer.RenderData(
             menuBarConfig: settingsStore.display.menuBarConfig,
             rotateIndex: rotateIndex,
@@ -536,7 +544,7 @@ final class StatusBarController: NSObject {
             outageActive: settingsStore.statusShowMenuBarBadge && vendorStatusStore.isDegraded,
             outageHealth: vendorStatusStore.worstHealth,
             nextPollSeconds: vendorStatusStore.nextPollDate.map { max(0, Int(ceil($0.timeIntervalSinceNow))) },
-            menuBarIsDark: menuBarIsDark,
+            menuBarIsDark: isDark,
             maxContentWidth: menuBarContentBudget
         ))
         statusItem.button?.image = image
