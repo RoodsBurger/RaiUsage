@@ -40,8 +40,7 @@ struct SessionHistoryParseTests {
         #expect(parsed.bucketsByHour.count == 1)
         let bucket = parsed.bucketsByHour.values.first!
 
-        // Each raw model id keeps its own breakdown, even though sonnet-5 and
-        // sonnet-4-6 both fold to `.sonnet` for display.
+        // Each raw model id keeps its own breakdown.
         #expect(bucket.tokensByRawModelDetailed["claude-sonnet-5"]
             == TokenBreakdown(input: 100, output: 200, cacheRead: 50, cacheCreate: 10))
         #expect(bucket.tokensByRawModelDetailed["claude-sonnet-4-6"]
@@ -57,8 +56,9 @@ struct SessionHistoryParseTests {
             line(ts: "2026-07-01T10:40:00.000Z", model: "claude-sonnet-4-6", input: 5, output: 7)
         ].joined(separator: "\n")
         let bucket = onlyBucket(content)
-        // Both sonnet versions fold into .sonnet: active = (100+200)+(5+7).
-        #expect(bucket.tokensByModel[.sonnet] == 312)
+        // Each sonnet version keeps its own active total (input + output).
+        #expect(bucket.tokensByModel[.sonnet5] == 300)
+        #expect(bucket.tokensByModel[.sonnet46] == 12)
         #expect(bucket.inputTokens == 105)
         #expect(bucket.outputTokens == 207)
     }
@@ -96,8 +96,9 @@ struct SessionHistoryParseTests {
             breakdownByRawModel: bucket.tokensByRawModelDetailed,
             pricing: .fallback
         )
-        // sonnet-5 @ $2 + sonnet-4-6 @ $3 = $5, both under the .sonnet kind.
+        // sonnet-5 @ $2 + sonnet-4-6 @ $3 = $5.
         #expect(est.total == 5)
-        #expect(est.perModel[.sonnet] == 5)
+        #expect(est.perModel[.sonnet5] == 2)
+        #expect(est.perModel[.sonnet46] == 3)
     }
 }

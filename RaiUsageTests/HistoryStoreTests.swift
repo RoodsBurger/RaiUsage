@@ -29,14 +29,14 @@ struct HistoryStoreTests {
     @Test("totalsByKind sums tokens per ModelKind across buckets")
     func totalsByKindSums() {
         let buckets = [
-            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet: 50]),
-            Self.bucket(2026, 5, 26, byModel: [.opus48: 30, .haiku: 10])
+            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet5: 50]),
+            Self.bucket(2026, 5, 26, byModel: [.opus48: 30, .haiku45: 10])
         ]
         let totals = HistoryStore.totalsByKind(in: buckets)
         #expect(totals[.opus48] == 130)
-        #expect(totals[.sonnet] == 50)
-        #expect(totals[.haiku] == 10)
-        #expect(totals[.fable] == nil)
+        #expect(totals[.sonnet5] == 50)
+        #expect(totals[.haiku45] == 10)
+        #expect(totals[.fable5] == nil)
     }
 
     @Test("totalsByKind is empty for empty input")
@@ -46,15 +46,15 @@ struct HistoryStoreTests {
 
     @Test("bucketsForChart with .all returns buckets unchanged")
     func bucketsForChartAll() {
-        let buckets = [Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet: 50])]
+        let buckets = [Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet5: 50])]
         let out = HistoryStore.bucketsForChart(buckets, filter: .all)
-        #expect(out.first?.tokensByModel == [.opus48: 100, .sonnet: 50])
+        #expect(out.first?.tokensByModel == [.opus48: 100, .sonnet5: 50])
     }
 
     @Test("bucketsForChart with a family keeps only that family's kinds")
     func bucketsForChartFamily() {
         let buckets = [
-            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .opus46: 20, .sonnet: 50, .haiku: 5])
+            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .opus46: 20, .sonnet5: 50, .haiku45: 5])
         ]
         let out = HistoryStore.bucketsForChart(buckets, filter: .family(.opus))
         // Opus 4.8 and 4.6 both fold into .opus and survive; sonnet/haiku drop.
@@ -64,7 +64,7 @@ struct HistoryStoreTests {
     @Test("bucketsForChart leaves non-model fields untouched")
     func bucketsForChartPreservesOtherFields() {
         let buckets = [
-            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet: 50],
+            Self.bucket(2026, 5, 25, byModel: [.opus48: 100, .sonnet5: 50],
                         byProject: ["/p": 150], sessions: 3, input: 10, output: 20)
         ]
         let out = HistoryStore.bucketsForChart(buckets, filter: .family(.opus))

@@ -40,7 +40,7 @@ struct CostEstimatorTests {
             pricing: pricing
         )
         #expect(est.total == 60)
-        #expect(est.perModel[.fable] == 60)
+        #expect(est.perModel[.fable5] == 60)
     }
 
     @Test("haiku is priced at $1 in / $5 out")
@@ -50,12 +50,11 @@ struct CostEstimatorTests {
             pricing: pricing
         )
         #expect(est.total == 6)
-        #expect(est.perModel[.haiku] == 6)
+        #expect(est.perModel[.haiku45] == 6)
     }
 
-    /// sonnet-5 and sonnet-4-6 both fold into `.sonnet` for display but must be
-    /// priced at their own distinct rates ($2 vs $3 input).
-    @Test("sonnet-5 and sonnet-4-6 price at distinct rates yet fold to one kind")
+    /// sonnet-5 and sonnet-4-6 are distinct kinds priced at their own rates ($2 vs $3 input).
+    @Test("sonnet-5 and sonnet-4-6 price at distinct rates under distinct kinds")
     func sonnetVersionsPriceDistinctly() {
         let five = CostEstimator.estimate(
             breakdownByRawModel: ["claude-sonnet-5": bd(input: 1_000_000)],
@@ -76,11 +75,30 @@ struct CostEstimatorTests {
             ],
             pricing: pricing
         )
-        #expect(both.perModel[.sonnet] == 5)
+        #expect(both.perModel[.sonnet5] == 2)
+        #expect(both.perModel[.sonnet46] == 3)
         #expect(both.total == 5)
     }
 
     // MARK: - Fallbacks and edges
+
+    /// Longer ids must win over their prefixes (opus-5-5 vs opus-5, fable-5-1 vs fable-5).
+    @Test("current 5.x models price at their own rows")
+    func currentModelsPriceDistinctly() {
+        let est = CostEstimator.estimate(
+            breakdownByRawModel: [
+                "claude-opus-5-5": bd(input: 1_000_000, output: 1_000_000),  // $4 + $20
+                "claude-opus-5": bd(input: 1_000_000),                        // $5
+                "claude-fable-5-1": bd(cacheRead: 1_000_000),                 // $0.25
+                "claude-fable-5": bd(cacheRead: 1_000_000)                    // $1
+            ],
+            pricing: pricing
+        )
+        #expect(est.perModel[ModelKind(family: .opus, version: "5.5")] == 24)
+        #expect(est.perModel[ModelKind(family: .opus, version: "5")] == 5)
+        #expect(est.perModel[ModelKind(family: .fable, version: "5.1")] == 0.25)
+        #expect(est.perModel[.fable5] == 1)
+    }
 
     @Test("an unknown model falls through to the default row and maps to .other")
     func unknownModelUsesDefault() {
@@ -131,6 +149,6 @@ struct CostEstimatorTests {
         )
         #expect(est.total == 6)
         #expect(est.perModel[.opus48] == 5)
-        #expect(est.perModel[.haiku] == 1)
+        #expect(est.perModel[.haiku45] == 1)
     }
 }

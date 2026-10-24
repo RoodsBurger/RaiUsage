@@ -10,7 +10,7 @@ struct ActivityWindowCalculatorTests {
     private static func bucket(hoursAgo: Double, tokens: Int, sessions: Int = 0) -> HistoryBucket {
         HistoryBucket(
             date: now.addingTimeInterval(-hoursAgo * 3600),
-            tokensByModel: [.fable: tokens],
+            tokensByModel: [.fable5: tokens],
             tokensByProject: [:],
             sessionsCount: sessions,
             inputTokens: tokens,

@@ -17,7 +17,7 @@ struct MonitoringInsightsStoreTests {
     private static func bucket(_ date: Date, total: Int) -> HistoryBucket {
         HistoryBucket(
             date: date,
-            tokensByModel: [.sonnet: total],
+            tokensByModel: [.sonnet5: total],
             tokensByProject: [:],
             sessionsCount: 1,
             inputTokens: 0,
