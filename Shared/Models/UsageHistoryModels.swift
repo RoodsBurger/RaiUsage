@@ -36,76 +36,77 @@ enum HistoryRange: String, CaseIterable, Codable, Sendable {
 
 // MARK: - Model classification
 
-/// Coarse model identity used for chart colouring + filter chips. Fable is the
-/// Mythos-class tier above Opus and gets its own family; Opus 4.8/4.7/4.6 are
-/// kept distinct (the user might run several back-to-back), Sonnet/Haiku
-/// collapse all minor versions, anything unrecognised lands in `.other`. Design
-/// intentionally absent: it never appears in Claude Code JSONL files.
-enum ModelKind: String, CaseIterable, Codable, Hashable, Sendable {
-    case fable
-    case opus48
-    case opus47
-    case opus46
-    case sonnet
-    case haiku
-    case other
+/// Model identity used for chart colouring, legend labels and filter chips:
+/// a family plus the version parsed from the raw JSONL model id
+/// (`claude-opus-5-5` -> Opus 5.5, `claude-fable-5-1[1m]` -> Fable 5.1). The
+/// version is read from the id itself, so new releases get a correct label
+/// without code changes. Bare aliases (`opus`, `sonnet`) carry no version.
+struct ModelKind: Hashable, Sendable, Comparable {
+    let family: ModelFamily
+    /// Dotted version ("5.5"), nil when the raw id names no version.
+    let version: String?
+
+    init(family: ModelFamily, version: String? = nil) {
+        self.family = family
+        self.version = family == .other ? nil : version
+    }
 
     init(rawModel: String) {
         let lower = rawModel.lowercased()
-        if lower.contains("fable") {
-            // Fable 5 (and any future Fable minor) maps to the Fable family.
-            self = .fable
-        } else if lower.contains("opus-4-8") || lower.contains("opus-4.8") {
-            self = .opus48
-        } else if lower.contains("opus-4-7") || lower.contains("opus-4.7") {
-            self = .opus47
-        } else if lower.contains("opus-4-6") || lower.contains("opus-4.6") {
-            self = .opus46
-        } else if lower.contains("opus") {
-            // Bare "opus" alias and any unversioned Opus string map to the
-            // current shipping version. Future minor versions need their own
-            // explicit case above to get a distinct label and color.
-            self = .opus48
-        } else if lower.contains("sonnet") {
-            self = .sonnet
-        } else if lower.contains("haiku") {
-            self = .haiku
-        } else {
-            self = .other
+        guard let family = ModelFamily.allCases.first(where: { $0 != .other && lower.contains($0.rawValue) }),
+              let range = lower.range(of: family.rawValue) else {
+            self.init(family: .other)
+            return
         }
+        self.init(family: family, version: Self.version(in: lower[range.upperBound...]))
     }
+
+    static let other = ModelKind(family: .other)
 
     var displayName: String {
-        switch self {
-        case .fable:  return "Fable 5"
-        case .opus48: return "Opus 4.8"
-        case .opus47: return "Opus 4.7"
-        case .opus46: return "Opus 4.6"
-        case .sonnet: return "Sonnet"
-        case .haiku:  return "Haiku"
-        case .other:  return "Other"
-        }
+        guard let version else { return family.displayName }
+        return "\(family.displayName) \(version)"
     }
 
-    /// Family used by the filter chips. Opus 4.8, 4.7 and 4.6 fold into `.opus`
-    /// since users typically think "Opus" not "Opus 4.8 vs 4.7 vs 4.6". Fable is
-    /// its own family (no minor-version split yet).
-    var family: ModelFamily {
-        switch self {
-        case .fable:                    return .fable
-        case .opus48, .opus47, .opus46: return .opus
-        case .sonnet:                   return .sonnet
-        case .haiku:                    return .haiku
-        case .other:                    return .other
-        }
+    /// Chart stacking order: family rank first, then older versions below newer.
+    static func < (lhs: ModelKind, rhs: ModelKind) -> Bool {
+        if lhs.family != rhs.family { return lhs.family.stackRank < rhs.family.stackRank }
+        return lhs.versionComponents.lexicographicallyPrecedes(rhs.versionComponents)
     }
 
-    /// Stable order for chart stacking (`.other` stays on top as the catch-all).
-    /// Fable sits with the Opus tier. Not a strict weight ordering; only the
-    /// `stackOrderContainsEveryCase` test guards completeness (the array is not
-    /// compiler-checked for missing cases).
-    static var stackOrder: [ModelKind] {
-        [.haiku, .opus46, .opus47, .opus48, .fable, .sonnet, .other]
+    private var versionComponents: [Int] {
+        (version ?? "").split(separator: ".").compactMap { Int($0) }
+    }
+
+    /// Reads up to the first non-version piece after the family token: 1-2 digit
+    /// groups split by `-` or `.`, so `-4-5-20251001` yields "4.5" and `-5[1m]` "5".
+    private static func version(in tail: Substring) -> String? {
+        guard let first = tail.first, first == "-" || first == "." else { return nil }
+        var parts: [Substring] = []
+        for piece in tail.split(whereSeparator: { $0 == "-" || $0 == "." }) {
+            let digits = piece.prefix(while: \.isASCII).prefix(while: \.isNumber)
+            guard !digits.isEmpty, digits.count <= 2 else { break }
+            parts.append(digits)
+            if digits.count < piece.count { break }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ".")
+    }
+}
+
+/// Encoded as a single `family` or `family-version` string so cached buckets stay compact.
+extension ModelKind: Codable {
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        let parts = raw.split(separator: "-", maxSplits: 1).map(String.init)
+        guard let family = parts.first.flatMap(ModelFamily.init(rawValue:)) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown model kind \(raw)"))
+        }
+        self.init(family: family, version: parts.count > 1 ? parts[1] : nil)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(version.map { "\(family.rawValue)-\($0)" } ?? family.rawValue)
     }
 }
 
@@ -122,6 +123,17 @@ enum ModelFamily: String, CaseIterable, Codable, Hashable, Sendable {
         case .sonnet: return "Sonnet"
         case .haiku:  return "Haiku"
         case .other:  return "Other"
+        }
+    }
+
+    /// Bottom-to-top position in the stacked chart (`.other` stays on top as the catch-all).
+    var stackRank: Int {
+        switch self {
+        case .haiku:  return 0
+        case .opus:   return 1
+        case .fable:  return 2
+        case .sonnet: return 3
+        case .other:  return 4
         }
     }
 }
@@ -309,9 +321,8 @@ struct HistoryCache: Codable, Sendable {
     var version: Int
     var entries: [String: HistoryFileCacheEntry]
 
-    /// v3: bumped so existing caches (which predate the per-raw-model
-    /// `tokensByRawModelDetailed` field) are discarded and re-scanned, so the
-    /// cost estimate has its per-model token split from the first open.
-    static let currentVersion = 3
+    /// Caches with any other version are discarded and re-scanned, so stored
+    /// `ModelKind` keys always match the current version-parsing rules.
+    static let currentVersion = 4
     static let empty = HistoryCache(version: currentVersion, entries: [:])
 }

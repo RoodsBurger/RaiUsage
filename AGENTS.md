@@ -9,7 +9,7 @@ It complements the other docs and deliberately does not duplicate them:
 - [`SETUP.md`](SETUP.md) - building from source as an end user.
 - [`docs/design/MASTER.md`](docs/design/MASTER.md) and [`docs/design/COLORING.md`](docs/design/COLORING.md) - the window design system and the Smart Color risk model.
 
-Current version: 6.5.3 (`MARKETING_VERSION` in `project.yml`).
+Current version: 6.5.4 (`MARKETING_VERSION` in `project.yml`).
 
 ## Language
 
@@ -152,7 +152,7 @@ Prerequisites: macOS 14+, XcodeGen (`brew install xcodegen`), and Xcode (see the
 
 ### Unit tests
 
-The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 718 `@Test` cases across 59 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
+The suite uses [Swift Testing](https://developer.apple.com/documentation/testing) (`import Testing`, `@Test`, `#expect`), not XCTest. There are 719 `@Test` cases across 59 files (recompute with `grep -rho '@Test' RaiUsageTests --include='*.swift' | wc -l`). Mocks live in `RaiUsageTests/Mocks/` (one protocol-based mock per service), fixtures in `RaiUsageTests/Fixtures/`. Stores are `@MainActor`, so their test suites are too. Suites that write to the shared `UserDefaults` are marked `.serialized` and clean up after themselves.
 
 Run the tests (identical to CI):
 

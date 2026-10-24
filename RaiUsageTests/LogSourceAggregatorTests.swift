@@ -27,8 +27,8 @@ struct LogSourceAggregatorTests {
     private static var sample: [LogSource: [HistoryBucket]] {
         [
             .local: [bucket(2026, 7, 1, byModel: [.opus48: 100], sessions: 2)],
-            instanceA: [bucket(2026, 7, 1, byModel: [.opus48: 40, .sonnet: 10], sessions: 1)],
-            instanceB: [bucket(2026, 7, 2, byModel: [.haiku: 5], sessions: 3)]
+            instanceA: [bucket(2026, 7, 1, byModel: [.opus48: 40, .sonnet5: 10], sessions: 1)],
+            instanceB: [bucket(2026, 7, 2, byModel: [.haiku45: 5], sessions: 3)]
         ]
     }
 
@@ -39,7 +39,7 @@ struct LogSourceAggregatorTests {
         #expect(merged.count == 2)
         let jul1 = merged.first { Calendar(identifier: .gregorian).component(.day, from: $0.date) == 1 }
         #expect(jul1?.tokensByModel[.opus48] == 140)   // 100 (local) + 40 (A)
-        #expect(jul1?.tokensByModel[.sonnet] == 10)
+        #expect(jul1?.tokensByModel[.sonnet5] == 10)
         #expect(jul1?.sessionsCount == 3)              // 2 + 1
         let total = merged.reduce(0) { $0 + $1.totalActive }
         #expect(total == 155)                          // 100 + 40 + 10 + 5
@@ -50,7 +50,7 @@ struct LogSourceAggregatorTests {
         let out = LogSourceAggregator.activeBuckets(bySource: Self.sample, sourceFilter: .local)
         #expect(out.count == 1)
         #expect(out.first?.tokensByModel[.opus48] == 100)
-        #expect(out.first?.tokensByModel[.sonnet] == nil)
+        #expect(out.first?.tokensByModel[.sonnet5] == nil)
     }
 
     @Test("selecting an instance returns only that instance's buckets")

@@ -5,7 +5,7 @@ import Charts
 /// Mirrors the Monitoring layout (header + cards) but pivots around a stacked
 /// bar chart by model with model-family filter chips. Chrome is an opaque
 /// `DS.Pastel.card` fill with a `DS.Pastel.border` hairline throughout - no
-/// material, no gradient wash. The per-model chart palette (`gradient(for:)` /
+/// material, no gradient wash. The per-model chart palette (`gradient(for:among:)` /
 /// `chipColor(for:)`) is the one allowed data-viz exception: those are
 /// categorical model identities, not chrome. Performance-sensitive: the
 /// underlying service caches per-file aggregates so repeat opens stay fast.
@@ -519,9 +519,7 @@ struct HistoryView: View {
     }
 
     private var chartContent: some View {
-        let visibleKinds = ModelKind.stackOrder.filter { kind in
-            !filteredOut(kind) && store.totalsByKind[kind] != nil
-        }
+        let visibleKinds = store.totalsByKind.keys.filter { !filteredOut($0) }.sorted()
         let bucketsArray = store.filteredBuckets
         let count = bucketsArray.count
         let filteredTotal = bucketsArray.reduce(0) { $0 + $1.totalActive }
@@ -594,7 +592,7 @@ struct HistoryView: View {
             }
         }
         .chartForegroundStyleScale(domain: visibleKinds.map { $0.displayName },
-                                   range: visibleKinds.map { gradient(for: $0) })
+                                   range: visibleKinds.map { gradient(for: $0, among: visibleKinds) })
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
                 AxisValueLabel {
@@ -737,7 +735,7 @@ struct HistoryView: View {
                     ForEach(kinds, id: \.self) { kind in
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(gradient(for: kind))
+                                .fill(gradient(for: kind, among: visibleKinds))
                                 .frame(width: 6, height: 6)
                             Text(kind.displayName)
                                 .font(.system(size: 11))
@@ -975,16 +973,19 @@ struct HistoryView: View {
     /// Categorical per-model palette - the one allowed data-viz exception to
     /// the DS.Pastel-only rule. These are model identities (legend + stacked
     /// bar segments), not chrome, so they keep their own distinct hues.
-    private func gradient(for kind: ModelKind) -> Color {
-        switch kind {
-        case .fable:  return Color(hex: "#E86FC4")
-        case .opus48: return Color(hex: "#F2B968")
-        case .opus47: return Color(hex: "#E8A24A")
-        case .opus46: return Color(hex: "#C2792B")
-        case .sonnet: return Color(hex: "#5BC489")
-        case .haiku:  return Color(hex: "#4FB7B0")
-        case .other:  return Color(hex: "#9B8BD9")
+    /// The newest visible version of a family gets the family hue; each older
+    /// visible version steps one shade darker.
+    private func gradient(for kind: ModelKind, among kinds: [ModelKind]) -> Color {
+        let shades: [String]
+        switch kind.family {
+        case .fable:  shades = ["#E86FC4", "#C9549F", "#A33F80"]
+        case .opus:   shades = ["#F2B968", "#E8A24A", "#C2792B"]
+        case .sonnet: shades = ["#5BC489", "#3FA06B", "#2E7D52"]
+        case .haiku:  shades = ["#4FB7B0", "#36918B", "#256F6A"]
+        case .other:  shades = ["#9B8BD9"]
         }
+        let newer = kinds.filter { $0.family == kind.family && kind < $0 }.count
+        return Color(hex: shades[min(newer, shades.count - 1)])
     }
 
     private func chipColor(for family: ModelFamily) -> Color {

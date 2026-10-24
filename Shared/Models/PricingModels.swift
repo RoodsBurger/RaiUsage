@@ -56,10 +56,13 @@ struct PricingTable: Codable, Sendable, Equatable {
         updated: nil,
         currency: "USD",
         models: [
+            PricingEntry(match: ["fable-5-1", "mythos-5-1"], input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50, note: nil),
             PricingEntry(match: ["fable-5", "mythos-5"], input: 10, cacheWrite: 12.5, cacheRead: 1.0, output: 50, note: nil),
-            PricingEntry(match: ["opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5"], input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25, note: nil),
+            PricingEntry(match: ["opus-5-5"], input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20, note: nil),
+            PricingEntry(match: ["opus-5", "opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5"], input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25, note: nil),
             PricingEntry(match: ["sonnet-5"], input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10, note: nil),
             PricingEntry(match: ["sonnet-4-6", "sonnet-4-5", "sonnet-4"], input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15, note: nil),
+            PricingEntry(match: ["haiku-5-5"], input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5, note: "Prompts over 100K tokens bill at $0.50 in / $2.50 out."),
             PricingEntry(match: ["haiku-4-5"], input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5, note: nil),
             PricingEntry(match: [], input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15, note: nil)
         ]
